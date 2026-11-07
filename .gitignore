@@ -1,0 +1,32 @@
+# Everything stays out unless it's listed below. This folder also holds the game's art, decompiled game code,
+# licensed sample skies and large test output, none of which may ever reach the repository.
+/*
+
+!/.gitignore
+!/README.md
+!/TESTING.md
+!/LanaVR.csproj
+
+!/src/
+
+!/native/
+/native/build/
+
+!/install/
+
+!/tests/
+/tests/last_run.txt
+
+# Only the placeholder skies and the mapping. Never the images directly in skybox.
+!/skybox/
+/skybox/*
+!/skybox/skyboxes.txt
+!/skybox/tester/
+
+# Only the mod's own tools. Not decomp, dl, ilspy, openxr, symbols or the files copied from the game folder.
+!/tools/
+/tools/*
+!/tools/make_package.ps1
+!/tools/make_tester_skies.ps1
+!/tools/mock_runtime.json
+!/tools/prof/

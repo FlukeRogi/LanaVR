@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>LanaVR</AssemblyName>
+    <RootNamespace>LanaVR</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Planet of Lana</GameDir>
+    <OutputPath>build\</OutputPath>
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src\**\*.cs" />
+    <Reference Include="$(GameDir)\BepInEx\core\BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\BepInEx.Unity.Common.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\Il2CppInterop.Common.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\interop\*.dll" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <SkyboxImage Include="skybox\*.png;skybox\skyboxes.txt" />
+  </ItemGroup>
+  <Target Name="Deploy" AfterTargets="Build" Condition="Exists('$(GameDir)\BepInEx')">
+    <Copy SourceFiles="@(SkyboxImage)" DestinationFolder="$(GameDir)\BepInEx\plugins\LanaVR\skybox" />
+    <MakeDir Directories="$(GameDir)\BepInEx\plugins\LanaVR" />
+    <Copy SourceFiles="$(OutputPath)LanaVR.dll" DestinationFolder="$(GameDir)\BepInEx\plugins\LanaVR" />
+    <Copy SourceFiles="native\build\Release\LanaVRNative.dll;tools\openxr\native\x64\release\bin\openxr_loader.dll" DestinationFolder="$(GameDir)\BepInEx\plugins\LanaVR" Condition="Exists('native\build\Release\LanaVRNative.dll')" />
+  </Target>
+</Project>
+

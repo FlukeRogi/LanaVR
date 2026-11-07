@@ -1,0 +1,39 @@
+# Which skybox image to show with each of the game's backdrops.
+#
+# Format:  Backdrop name = image file in this folder
+#
+# Images can be 2:1 panoramas (equirectangular) or 4:3 horizontal-cross cubemaps, of any size, as PNG
+# or JPG. The middle of a panorama faces forward. A backdrop that isn't listed, or that is
+# commented out with #, keeps whichever skybox is already showing. Restart the game after editing.
+# The mod's log, BepInEx\LogOutput.log, says which backdrop is showing as you play.
+
+Main Menu = backdrop.png
+
+Chapter 01 Backdrop = backdrop.png
+Chapter 01 Backdrop Night = backdropnight.png
+Chapter 03 Backdrop = backdrop.png
+Chapter 04 Backdrop = backdrop.png
+Chapter 05 Backdrop = backdropnight.png
+Chapter 06 Backdrop = backdropnight.png
+Chapter 07 Backdrop = backdrop.png
+Chapter 09 Backdrop = backdropnight.png
+Chapter 10 Backdrop = backdrop.png
+Chapter 12 Backdrop = backdrop.png
+Chapter 14 Backdrop = backdrop.png
+Chapter 15 Backdrop = backdrop.png
+Chapter 16 Backdrop = backdropnight.png
+Chapter 17 Backdrop = backdrop.png
+
+# These don't have their own images yet, so they keep the skybox already showing.
+# Chapter 03 Backdrop 1 =
+# Chapter 14 Backdrop Dream =
+# Chapter 15 Backdrop Rauken =
+# Chapter 16 Backdrop 2 =
+
+# Tints follow the game's own colour fades, so the sky changes along with the screen. Each line names a
+# backdrop, one of the game's post-process volumes, and the red, green and blue that volume leaves at full
+# strength (1 is unchanged). The tint only applies while that backdrop is showing.
+# Tint: Backdrop name / Volume name = red green blue
+
+Tint: Chapter 01 Backdrop / PP Sunset = 1.00 0.56 0.52
+Tint: Chapter 01 Backdrop / PP Gray = 0.56 0.55 0.81

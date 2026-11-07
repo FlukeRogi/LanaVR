@@ -1,0 +1,10 @@
+LanaVR includes the following third-party components, unmodified:
+
+BepInEx 6 (bleeding edge build 791), https://github.com/BepInEx/BepInEx
+  LGPL-2.1. Its bundled dependencies, including HarmonyX, Il2CppInterop, UnityDoorstop
+  and a .NET runtime, are under their own open source licences. See the BepInEx project.
+
+Khronos OpenXR loader 1.1.65, https://github.com/KhronosGroup/OpenXR-SDK
+  Apache-2.0.
+
+No game files are included. Interop assemblies are generated on your PC at first start.
