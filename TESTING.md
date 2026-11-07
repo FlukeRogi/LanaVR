@@ -2,7 +2,7 @@
 
 LanaVR plays Planet of Lana on a floating 3D screen in VR. You stand on a wooden platform on a lake, the screen floats in front of you, and each eye gets its own full render of the game. Thanks for helping to test it.
 
-**This is a private test build, so please don't share the files or this page.** The skies in it are plain placeholders until the final ones are ready, so don't judge the sky's look.
+**This is a private test build, so please don't share the files or this page.** The skies in it are low-resolution samples until the final ones are ready, so don't judge the sky's sharpness, and they aren't licensed for use outside this test.
 
 ## What you need
 

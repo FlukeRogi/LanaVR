@@ -17,16 +17,14 @@
 !/tests/
 /tests/last_run.txt
 
-# Only the placeholder skies and the mapping. Never the images directly in skybox.
+# Only the mapping. The sample skies go in the test zip, never in the repository.
 !/skybox/
 /skybox/*
 !/skybox/skyboxes.txt
-!/skybox/tester/
 
 # Only the mod's own tools. Not decomp, dl, ilspy, openxr, symbols or the files copied from the game folder.
 !/tools/
 /tools/*
 !/tools/make_package.ps1
-!/tools/make_tester_skies.ps1
 !/tools/mock_runtime.json
 !/tools/prof/
