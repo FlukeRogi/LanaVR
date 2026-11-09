@@ -1,4 +1,4 @@
-# LanaVR
+# Planet of Lana VR
 
 **Play Planet of Lana in VR, on a giant floating 3D screen.**
 
