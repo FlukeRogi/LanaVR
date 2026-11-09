@@ -3,6 +3,7 @@
 #include "Skybox.h"
 #include <d3dcompiler.h>
 #include <wincodec.h>
+#include <bcrypt.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -70,7 +71,7 @@ cbuffer Params : register(b0) {
     float4 screenPos;     // xyz centre, w is 1 when a game image is bound
     float4 screenRotInv;  // quaternion from world to screen space
     float4 screenSize;    // xy width and height, z how far the crossfade to the next sky has got
-    float4 skyTint;       // rgb linear multiplier, following the game's colour grading
+    float4 skyTint;       // rgb linear multiplier, following the game's colour grading; w fades the whole layer
     float4 sceneryInfo;   // xy this layer's size in pixels, z is 1 when scenery is bound
 };
 TextureCube sky : register(t0);
@@ -178,20 +179,33 @@ float3 Background(V2P i) {
     float3 deep = average * float3(0.10, 0.24, 0.30);
     float3 color = lerp(deep, reflection, fresnel) * brightness * skyTint.rgb;
 
-    // Follows the reflected ray to the game screen. Screen space is +z towards the viewer.
+    // Follows the reflected ray to the game screen. Screen space is +z towards the viewer. The hit is worked
+    // out for every pixel, so its rate of change across pixels is known even where it misses the screen.
     float3 o = Rotate(screenRotInv, p - screenPos.xyz);
     float3 v = Rotate(screenRotInv, r);
+    float s = -o.z / min(v.z, -0.0001);
+    float3 h = o + v * s;
+    float2 uv = float2(h.x / screenSize.x + 0.5, 0.5 - h.y / screenSize.y);
+    // How many of the game image's pixels one headset pixel covers here: the finest detail that can be shown
+    // without sparkling as the ripples move. Ripples and distance both raise it.
+    float2 gameSize;
+    float gameMips;
+    gameImage.GetDimensions(0, gameSize.x, gameSize.y, gameMips);
+    float2 dx = ddx(uv) * gameSize, dy = ddy(uv) * gameSize;
+    float detailLod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-6));
     float3 hitInfo = 0;
     if (o.z > 0.0 && v.z < -0.0001) {
-        float s = -o.z / v.z;
-        float3 h = o + v * s;
-        float2 uv = float2(h.x / screenSize.x + 0.5, 0.5 - h.y / screenSize.y);
         float2 edge = min(uv, 1.0 - uv);
         float feather = 0.015 + 0.05 * saturate(s * 0.25);
         float mask = smoothstep(0.0, feather, edge.x) * smoothstep(0.0, feather, edge.y);
         hitInfo = float3(saturate(uv), mask);
         if (screenPos.w > 0.5 && mask > 0.0) {
-            float lod = 2.0 + saturate(s * 0.35) * 2.5;
+            // Reflection quality, in screenSize.w: 0 low, 1 medium (the original look), 2 high.
+            float quality = screenSize.w;
+            float far = saturate(s * 0.35);
+            float lod = quality < 0.5 ? 3.0 + far * 3.0
+                      : quality < 1.5 ? 2.0 + far * 2.5
+                      : max(0.5 + far * 1.5, detailLod + 0.5);
             float3 game = gameImage.SampleLevel(skySampler, saturate(uv), lod).rgb;
             // Stronger than physics at steep angles, so the screen visibly sits on the water.
             color = lerp(color, game, mask * saturate(fresnel + 0.38));
@@ -218,7 +232,8 @@ float4 PSMain(V2P i) : SV_Target {
         float4 s = sceneryImage.SampleLevel(skySampler, i.position.xy / sceneryInfo.xy, 0);
         if (s.a > 0.0) color = color * (1.0 - s.a) + s.rgb * SceneryLight();
     }
-    return float4(color, 1.0);
+    // Sky, water, reflections and scenery all fade in together from black.
+    return float4(color * skyTint.w, 1.0);
 }
 )";
 
@@ -315,16 +330,73 @@ void PanoramaToFaces(const uint8_t* image, int width, int height, int face, std:
     for (auto& worker : workers) worker.join();
 }
 
+// Packed skies (.lvsky) are the original image encrypted with AES-256-CBC: an 8-byte header, a 16-byte IV, then the
+// ciphertext. The key is in SkyKey.h, which stays out of the public source, so only builds made with it can read the
+// included skies. Decrypting runs on the decode thread with Windows' hardware AES, and takes a few milliseconds.
+#if __has_include("SkyKey.h")
+#include "SkyKey.h"
+#define LANAVR_SKY_KEY 1
+#endif
+const char kPackedMagic[8] = {'L', 'V', 'S', 'K', 'Y', '2', '\r', '\n'};
+
+// Returns true when the file is a packed sky this build can read, with the original image's bytes in 'image'.
+bool ReadPacked(const std::wstring& path, std::vector<uint8_t>& image) {
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, path.c_str(), L"rb") != 0 || !file) return false;
+    char magic[sizeof kPackedMagic] = {};
+    uint8_t iv[16] = {};
+    bool packed = fread(magic, 1, sizeof magic, file) == sizeof magic && memcmp(magic, kPackedMagic, sizeof magic) == 0;
+    packed = packed && fread(iv, 1, sizeof iv, file) == sizeof iv;
+    if (packed) {
+        _fseeki64(file, 0, SEEK_END);
+        const long long size = _ftelli64(file) - (long long)(sizeof magic + sizeof iv);
+        _fseeki64(file, sizeof magic + sizeof iv, SEEK_SET);
+        packed = size > 0 && size % 16 == 0 && size < 0xFFFFFFFFll;
+        if (packed) {
+            try { image.resize((size_t)size); } catch (const std::bad_alloc&) { packed = false; }
+        }
+        packed = packed && fread(image.data(), 1, image.size(), file) == image.size();
+    }
+    fclose(file);
+#ifdef LANAVR_SKY_KEY
+    if (packed) {
+        BCRYPT_ALG_HANDLE alg = nullptr;
+        BCRYPT_KEY_HANDLE key = nullptr;
+        ULONG plain = 0;
+        packed = BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&alg, BCRYPT_AES_ALGORITHM, nullptr, 0))
+              && BCRYPT_SUCCESS(BCryptSetProperty(alg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_CBC, sizeof(BCRYPT_CHAIN_MODE_CBC), 0))
+              && BCRYPT_SUCCESS(BCryptGenerateSymmetricKey(alg, &key, nullptr, 0, (PUCHAR)kSkyKey, sizeof kSkyKey, 0))
+              && BCRYPT_SUCCESS(BCryptDecrypt(key, image.data(), (ULONG)image.size(), nullptr, iv, sizeof iv, image.data(), (ULONG)image.size(), &plain, BCRYPT_BLOCK_PADDING));
+        if (key) BCryptDestroyKey(key);
+        if (alg) BCryptCloseAlgorithmProvider(alg, 0);
+        if (packed) image.resize(plain);
+    }
+#else
+    packed = false;  // Built without the key: the included skies can't be read, and the sky stays plain.
+#endif
+    return packed;
+}
+
 void Decode(std::wstring path, int maxFace, int generation) {
     HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     IWICImagingFactory* factory = nullptr;
+    IWICStream* stream = nullptr;
+    std::vector<uint8_t> packedImage;  // The decoder reads from this for as long as it's in use.
     IWICBitmapDecoder* decoder = nullptr;
     IWICBitmapFrameDecode* frame = nullptr;
     IWICBitmapScaler* scaler = nullptr;
     IWICFormatConverter* converter = nullptr;
     do {
         if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) { Fail(generation, "no image decoder available"); break; }
-        if (FAILED(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))) { Fail(generation, "the file is missing or is not a readable image"); break; }
+        HRESULT opened;
+        if (ReadPacked(path, packedImage)) {
+            opened = factory->CreateStream(&stream);
+            if (SUCCEEDED(opened)) opened = stream->InitializeFromMemory(packedImage.data(), (DWORD)packedImage.size());
+            if (SUCCEEDED(opened)) opened = factory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, &decoder);
+        } else {
+            opened = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
+        }
+        if (FAILED(opened)) { Fail(generation, "the file is missing or is not a readable image"); break; }
         if (FAILED(decoder->GetFrame(0, &frame))) { Fail(generation, "the image has no readable frame"); break; }
         UINT w = 0, h = 0;
         frame->GetSize(&w, &h);
@@ -380,6 +452,7 @@ void Decode(std::wstring path, int maxFace, int generation) {
     Drop(scaler);
     Drop(frame);
     Drop(decoder);
+    Drop(stream);
     Drop(factory);
     if (SUCCEEDED(co)) CoUninitialize();
 }
@@ -615,10 +688,10 @@ void DrawEye(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, int w
     c->skyRotation[0] = 0; c->skyRotation[1] = -std::sin(skyYaw / 2); c->skyRotation[2] = 0; c->skyRotation[3] = std::cos(skyYaw / 2);
     c->tint[0] = brightness; c->tint[1] = water.time; c->tint[2] = water.ripple; c->tint[3] = (float)water.debug;
     c->eye[0] = water.eye[0]; c->eye[1] = water.eye[1]; c->eye[2] = water.eye[2]; c->eye[3] = water.height;
-    c->screenPos[0] = water.screenPos[0]; c->screenPos[1] = water.screenPos[1]; c->screenPos[2] = water.screenPos[2]; c->screenPos[3] = game ? 1.0f : 0.0f;
+    c->screenPos[0] = water.screenPos[0]; c->screenPos[1] = water.screenPos[1]; c->screenPos[2] = water.screenPos[2]; c->screenPos[3] = game && water.reflectionQuality >= 0.0f ? 1.0f : 0.0f;  // Negative quality: reflection turned off
     c->screenRotInv[0] = -water.screenRot[0]; c->screenRotInv[1] = -water.screenRot[1]; c->screenRotInv[2] = -water.screenRot[2]; c->screenRotInv[3] = water.screenRot[3];
-    c->screenSize[0] = water.screenSize[0]; c->screenSize[1] = water.screenSize[1]; c->screenSize[2] = g_nextView ? g_mix : 0.0f; c->screenSize[3] = 0;
-    c->skyTint[0] = water.tint[0]; c->skyTint[1] = water.tint[1]; c->skyTint[2] = water.tint[2]; c->skyTint[3] = 1;
+    c->screenSize[0] = water.screenSize[0]; c->screenSize[1] = water.screenSize[1]; c->screenSize[2] = g_nextView ? g_mix : 0.0f; c->screenSize[3] = water.reflectionQuality;
+    c->skyTint[0] = water.tint[0]; c->skyTint[1] = water.tint[1]; c->skyTint[2] = water.tint[2]; c->skyTint[3] = water.reveal;
     c->sceneryInfo[0] = (float)width; c->sceneryInfo[1] = (float)height; c->sceneryInfo[2] = hasScenery ? 1.0f : 0.0f; c->sceneryInfo[3] = 0;
     context->Unmap(g_constants, 0);
     D3D11_VIEWPORT v{0, 0, (float)width, (float)height, 0, 1};
@@ -639,6 +712,12 @@ void EndPass(ID3D11DeviceContext* context) {
     context1->SwapDeviceContextState(g_savedState, nullptr);
     Drop(g_savedState);
     context1->Release();
+}
+
+// New scenery images replace the old ones, so views of the old ones are let go rather than kept for ever.
+void ForgetSceneryViews() {
+    for (auto& entry : g_sceneryViews) entry.second->Release();
+    g_sceneryViews.clear();
 }
 
 void ReleaseGpu() {

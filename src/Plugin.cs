@@ -5,9 +5,10 @@ using HarmonyLib;
 
 namespace LanaVR
 {
-    [BepInPlugin("com.lanavr.planetoflana", "LanaVR", "1.7.0")]
+    [BepInPlugin("com.lanavr.planetoflana", "LanaVR", Version)]
     public class Plugin : BasePlugin
     {
+        public const string Version = "1.15.0";
         internal static ManualLogSource L;
 
         public override void Load()
@@ -25,8 +26,10 @@ namespace LanaVR
             harmony.PatchAll(typeof(VrMenu.TogglePrevPatch));
             harmony.PatchAll(typeof(VrMenu.ToggleFlipPatch));
             harmony.PatchAll(typeof(VrMenu.ToggleRefreshPatch));
-            if (Cfg.LabCommands.Value)
+            if (!Cfg.LabCommands.Value) Log.LogInfo("Saves and Steam achievements work as normal");
+            else
             {
+                Log.LogWarning("Developer test mode is on: saves and Steam achievements are blocked");
                 harmony.PatchAll(typeof(Lab.BlockSaves));
                 harmony.PatchAll(typeof(Lab.BlockAwards));
                 AddComponent<Lab>();

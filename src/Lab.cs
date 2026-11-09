@@ -60,6 +60,7 @@ namespace LanaVR
             UnityEngine.Object.Destroy(copy);
         }
 
+        static float _worstFrame;
         bool _watch; float _watchNext;
         void WatchTick()
         {
@@ -81,8 +82,10 @@ namespace LanaVR
 
         void Update()
         {
+            _worstFrame = Mathf.Max(_worstFrame, Time.unscaledDeltaTime);
             PadTick();
             WatchTick();
+            WalkTick();
             if (Time.unscaledTime < _next) return;
             _next = Time.unscaledTime + 0.25f;
             if (!File.Exists(CmdFile)) return;
@@ -112,6 +115,34 @@ namespace LanaVR
                 case "ui": return DumpSelectables();
                 case "exec": return ExecSelectable(arg);
                 case "execi": { var a = arg.Split(' ', 2); return ExecSelectable(a[1], int.Parse(a[0])); }
+                case "mem":
+                    return PerfWatch.Memory() + $" | textures={Resources.FindObjectsOfTypeAll<Texture>().Length} rts={Resources.FindObjectsOfTypeAll<RenderTexture>().Length} materials={Resources.FindObjectsOfTypeAll<Material>().Length} meshes={Resources.FindObjectsOfTypeAll<Mesh>().Length} objects={Resources.FindObjectsOfTypeAll<GameObject>().Length} scenes={UnityEngine.SceneManagement.SceneManager.sceneCount} fps={1f / Time.smoothDeltaTime:F1} modMs={XrRig.I?.FrameMs:F2}";
+                case "skytrace":
+                    _traceUntil = Time.unscaledTime + float.Parse(arg, System.Globalization.CultureInfo.InvariantCulture);
+                    _traceStart = Time.unscaledTime;
+                    _trace.Clear();
+                    return "tracing";
+                case "slots":
+                {
+                    var sb = new StringBuilder();
+                    foreach (var s in Resources.FindObjectsOfTypeAll<PoL.UI.SlotButton>())
+                        if (s.gameObject.scene.IsValid() && s.gameObject.activeInHierarchy)
+                            sb.AppendLine($"index={s.Index} sibling={s.transform.GetSiblingIndex()} label={s.fieldSlot?.text} time={s.fieldTimeStamp?.text}");
+                    return sb.ToString();
+                }
+                case "slot":
+                {
+                    // Opens a save slot by the game's own slot number, counting from 0. The first two are the
+                    // player's real saves, so tests may only open the third.
+                    // "slot 0 player" opens one of the player's own, read only, when they have asked for that save
+                    // to be looked at. Saves are blocked whenever these commands are on.
+                    var a = arg.Split(' ');
+                    int want = int.Parse(a[0]);
+                    if (want < 2 && !(a.Length > 1 && a[1] == "player")) return "refused: slots 0 and 1 are the player's own saves";
+                    foreach (var s in Resources.FindObjectsOfTypeAll<PoL.UI.SlotButton>())
+                        if (s.gameObject.scene.IsValid() && s.gameObject.activeInHierarchy && s.Index == want) { s.Execute(); return $"opened slot {want}: {s.fieldSlot?.text}"; }
+                    return "not found";
+                }
                 case "pp": return DumpPP();
                 case "vr":
                     var x = XrRig.I;
@@ -142,7 +173,7 @@ namespace LanaVR
                     Native.LVR_LoadSkybox(a[0], int.Parse(a[1]), a.Length > 2 ? float.Parse(a[2], System.Globalization.CultureInfo.InvariantCulture) : 0f);
                     return "loading";
                 }
-                case "sky": return "status=" + Native.SkyboxStatus.Replace(' ', '_') + " brightness=" + Cfg.SkyBrightness.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " mapped=" + Skybox.MappedCount + " file=" + Skybox.CurrentFile + " backdrop=" + Skybox.CurrentBackdrop.Replace(' ', '_') + " tintVolumes=" + Skybox.TintVolumes + $" tint={Skybox.CurrentTint.r:F2},{Skybox.CurrentTint.g:F2},{Skybox.CurrentTint.b:F2}";
+                case "sky": return "status=" + Native.SkyboxStatus.Replace(' ', '_') + " quality=" + Skybox.QualityFace + " mapped=" + Skybox.MappedCount + " file=" + Skybox.CurrentFile + " backdrop=" + Skybox.CurrentBackdrop.Replace(' ', '_') + " tintVolumes=" + Skybox.TintVolumes + $" tint={Skybox.CurrentTint.r:F2},{Skybox.CurrentTint.g:F2},{Skybox.CurrentTint.b:F2}";
                 case "waterdebug": Native.LVR_SetWaterDebug(int.Parse(arg)); return "debug " + arg;
                 case "water":
                 {
@@ -217,6 +248,16 @@ namespace LanaVR
                     return sb.ToString();
                 }
                 case "watch": _watch = arg == "on"; _watchNext = 0; return "watch " + _watch;
+                case "keyhold":
+                {
+                    // keyhold PageUp 2: holds a key on a virtual keyboard for that many seconds.
+                    var a = arg.Split(' ');
+                    if (_kb == null) { _kb = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Keyboard>(); _kb.MakeCurrent(); }
+                    var key = (UnityEngine.InputSystem.Key)Enum.Parse(typeof(UnityEngine.InputSystem.Key), a[0], true);
+                    QueueKey((int)key);
+                    _keyRelease = Time.unscaledTime + float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture);
+                    return $"holding {key} ({(int)key})";
+                }
                 case "padhold":
                 {
                     if (_pad == null) { _pad = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Gamepad>(); _pad.MakeCurrent(); }
@@ -337,7 +378,10 @@ namespace LanaVR
                     return sb.Length > 0 ? sb.ToString() : "no view";
                 }
                 case "census": return Census(arg);
+                case "focus": return $"{WindowFocus.Status} isFocused={Application.isFocused}runInBackground={Application.runInBackground} background={UnityEngine.InputSystem.InputSystem.settings.backgroundBehavior} gamepads={UnityEngine.InputSystem.Gamepad.all.Count}";
+                case "peak": { var p = _worstFrame; _worstFrame = 0; return $"worstFrameMs={p * 1000f:F1}"; }
                 case "scenery": return Scenery.Status;
+                case "sceneryshot": return Scenery.SaveImage(Path.Combine(Dir, arg));
                 case "propgallery": return PropGallery(arg);
                 case "propload":
                 {
@@ -391,7 +435,7 @@ namespace LanaVR
                     var es = UnityEngine.EventSystems.EventSystem.current;
                     return $"focused={Application.isFocused} runInBg={Application.runInBackground} update={st.updateMode} devices=[{ds}] padDown={(_pad != null && _pad.dpad.down.isPressed)} padA={(_pad != null && _pad.buttonSouth.isPressed)} bg={st.backgroundBehavior} current={UnityEngine.InputSystem.Gamepad.current?.name} mask={m?.name} module={es?.currentInputModule?.GetIl2CppType().FullName} esFocus={(es != null ? es.isFocused : false)} sendNav={(es != null ? es.sendNavigationEvents : false)}";
                 }
-                case "cfg": return $"width={Cfg.ScreenWidth.Value} distance={Cfg.ScreenDistance.Value} stereo={Cfg.Stereo.Value} head={Cfg.HeadTracking.Value} sky={Cfg.SkyBrightness.Value} water={Cfg.WaterHeight.Value} ripple={Cfg.RippleStrength.Value} borders={Cfg.CutsceneBorders.Value} scenery={Cfg.Scenery.Value}";
+                case "cfg": return $"width={Cfg.ScreenWidth.Value} distance={Cfg.ScreenDistance.Value} stereo={Cfg.Stereo.Value} head={Cfg.HeadTracking.Value} skyquality={Cfg.SkyQuality.Value} water={Cfg.WaterHeight.Value} ripple={Cfg.RippleStrength.Value} reflection={Cfg.ReflectionQuality.Value} screenreflection={Cfg.ScreenReflection.Value} borders={Cfg.CutsceneBorders.Value} scenery={Cfg.Scenery.Value} scenerysize={Cfg.ScenerySize.Value} sceneryposition={Cfg.SceneryPosition.Value} standing={Scenery.Position:F3} fade={Scenery.Fade:F2}";
                 case "recenter": XrRig.I.RequestRecenter(); return "ok";
                 case "set":
                 {
@@ -403,14 +447,29 @@ namespace LanaVR
                         case "distance": Cfg.ScreenDistance.Value = v; break;
                         case "stereo": Cfg.Stereo.Value = v; break;
                         case "head": Cfg.HeadTracking.Value = v; break;
-                        case "sky": Cfg.SkyBrightness.Value = v; break;
+                        case "skyquality": Cfg.SkyQuality.Value = v; break;
                         case "water": Cfg.WaterHeight.Value = v; break;
                         case "ripple": Cfg.RippleStrength.Value = v; break;
                         case "borders": Cfg.CutsceneBorders.Value = v > 0.5f; break;
                         case "scenery": Cfg.Scenery.Value = v > 0.5f; break;
+                        case "scenerysize": Cfg.ScenerySize.Value = v; break;
+                        case "reflection": Cfg.ReflectionQuality.Value = v; break;
+                        case "screenreflection": Cfg.ScreenReflection.Value = v > 0.5f; break;
+                        case "sceneryposition": Cfg.SceneryPosition.Value = v; Scenery.ReloadPosition(); break;
                         default: return "unknown setting";
                     }
                     return "ok";
+                }
+                case "skyshade": { var a = arg.Split(' '); var c = System.Globalization.CultureInfo.InvariantCulture; Skybox.TestShade = new Color(float.Parse(a[0], c), float.Parse(a[1], c), float.Parse(a[2], c)); return "ok"; }
+                case "skywalk": return WalkStart(arg);
+                case "walkstate": return _walk == null ? $"idle samples={_walkDone}" : $"walking {_walkDone}";
+                case "deckprobe": { var a = arg.Split(' '); var c = System.Globalization.CultureInfo.InvariantCulture; return Scenery.ProbeDeck(float.Parse(a[0], c), float.Parse(a[1], c), float.Parse(a[2], c)); }
+                case "boattilt": { var a = arg.Split(' '); var c = System.Globalization.CultureInfo.InvariantCulture; return Scenery.TiltBoat(float.Parse(a[0], c), float.Parse(a[1], c), float.Parse(a[2], c)); }
+                case "sceneryview":
+                {
+                    var a = arg.Split(' '); var c = System.Globalization.CultureInfo.InvariantCulture;
+                    float F(int i) => float.Parse(a[i], c);
+                    return Scenery.SaveView(new Vector3(F(0), F(1), F(2)), F(3), F(4), F(5), Path.Combine(Dir, a[6]), a.Length > 7 && a[7] == "water");
                 }
                 case "tree": return Tree(arg);
                 case "quit": Application.Quit(); return "quitting";
@@ -469,6 +528,23 @@ namespace LanaVR
         static UnityEngine.InputSystem.Gamepad _pad;
         static int _padRelease = -1;
 
+        static UnityEngine.InputSystem.Keyboard _kb;
+        static float _keyRelease = -1;
+
+        /// <summary>A virtual keyboard's state with one key held, or none for a negative key.</summary>
+        static unsafe void QueueKey(int key)
+        {
+            byte* e = stackalloc byte[40];
+            for (int i = 0; i < 40; i++) e[i] = 0;
+            *(int*)e = 0x53544154;                     // 'STAT' event
+            *(ushort*)(e + 4) = 40;
+            *(ushort*)(e + 6) = (ushort)_kb.deviceId;
+            *(double*)(e + 8) = UnityEngine.InputSystem.LowLevel.InputState.currentTime;
+            *(int*)(e + 20) = 0x4B455953;              // 'KEYS' state format
+            if (key >= 0) e[24 + key / 8] = (byte)(1 << (key % 8));
+            UnityEngine.InputSystem.InputSystem.QueueEvent(new UnityEngine.InputSystem.LowLevel.InputEventPtr((UnityEngine.InputSystem.LowLevel.InputEvent*)e));
+        }
+
         static unsafe void QueuePad(uint buttons)
         {
             byte* e = stackalloc byte[52];
@@ -495,8 +571,24 @@ namespace LanaVR
             return "pressed " + button;
         }
 
+        static float _traceUntil = -1, _traceStart;
+        static readonly StringBuilder _trace = new StringBuilder();
+
+        /// <summary>Records the sky's state every frame for a while, for following a change of sky.</summary>
+        static void TraceTick()
+        {
+            if (_traceUntil < 0) return;
+            var t = Skybox.CurrentTint;
+            _trace.AppendLine($"{Time.unscaledTime - _traceStart:F2} {Skybox.CurrentBackdrop.Replace(' ', '_')} {Native.SkyboxStatus.Replace(' ', '_')} tint={t.r:F2},{t.g:F2},{t.b:F2}");
+            if (Time.unscaledTime < _traceUntil) return;
+            _traceUntil = -1;
+            File.WriteAllText(Path.Combine(Dir, "skytrace.txt"), _trace.ToString());
+        }
+
         static void PadTick()
         {
+            TraceTick();
+            if (_keyRelease > 0 && Time.unscaledTime >= _keyRelease) { QueueKey(-1); _keyRelease = -1; }
             if (_padRelease < 0 || Time.frameCount < _padRelease) return;
             QueuePad(0);
             _padRelease = -1;
@@ -648,6 +740,85 @@ namespace LanaVR
         }
 
         /// <summary>Lists what each loaded scene draws with, to show which of the game's art is real 3D.</summary>
+        // Walks Lana through a level, and measures the colour of its backdrop alone at each stop.
+        static System.Collections.Generic.Queue<float> _walk;
+        static string _walkScene, _walkFile;
+        static float _walkY, _walkX, _walkUntil;
+        static int _walkDone;
+
+        static string WalkStart(string arg)
+        {
+            var a = arg.Split('|');
+            _walkScene = a[0]; _walkFile = a[1];
+            float step = float.Parse(a[2], System.Globalization.CultureInfo.InvariantCulture);
+            var xs = new System.Collections.Generic.List<float>();
+            foreach (var r in Resources.FindObjectsOfTypeAll<Renderer>())
+                if (r.gameObject.scene.IsValid() && r.gameObject.scene.name == _walkScene && r.bounds.size.x < 200f) xs.Add(r.bounds.center.x);
+            var lana = PoL.Characters.Lana.LanaMachine.instance;
+            if (xs.Count == 0 || lana == null) return "nothing to walk";
+            xs.Sort();
+            float from = xs[xs.Count / 20], to = xs[xs.Count - 1 - xs.Count / 20];
+            _walk = new System.Collections.Generic.Queue<float>();
+            for (float x = from; x < to; x += step) _walk.Enqueue(x);
+            _walk.Enqueue(to);
+            _walkY = lana.transform.position.y + 2f;
+            _walkDone = 0;
+            _walkX = _walk.Dequeue();
+            _walkUntil = Time.unscaledTime + 2f;
+            return $"walking {from:F0} to {to:F0}";
+        }
+
+        void WalkTick()
+        {
+            if (_walk == null) return;
+            var lana = PoL.Characters.Lana.LanaMachine.instance;
+            if (lana == null) { _walk = null; return; }
+            lana.transform.position = new Vector3(_walkX, _walkY, lana.transform.position.z);
+            if (Time.unscaledTime < _walkUntil) return;
+            WalkSample();
+            _walkDone++;
+            if (_walk.Count == 0) { _walk = null; return; }
+            _walkX = _walk.Dequeue();
+            _walkUntil = Time.unscaledTime + 1.1f;
+        }
+
+        void WalkSample()
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+            var hidden = new System.Collections.Generic.List<Renderer>();
+            foreach (var r in Resources.FindObjectsOfTypeAll<Renderer>())
+                if (r.enabled && r.gameObject.scene.IsValid() && !r.gameObject.scene.name.Contains(" Backdrop")) { r.enabled = false; hidden.Add(r); }
+            const int W = 240, H = 135;
+            var rt = RenderTexture.GetTemporary(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
+            var old = cam.targetTexture;
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.targetTexture = old;
+            foreach (var r in hidden) r.enabled = true;
+            var previous = RenderTexture.active;
+            RenderTexture.active = rt;
+            var copy = new Texture2D(W, H, TextureFormat.RGBA32, false);
+            copy.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            copy.Apply();
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(rt);
+            // The upper half of the picture, where the sky is. The median follows the sky where it fills the view,
+            // and the bright end follows it where trees and hills cover much of it.
+            var pixels = new System.Collections.Generic.List<Color>();
+            for (int y = H / 2; y < H; y += 2) for (int x = 0; x < W; x += 2) pixels.Add(copy.GetPixel(x, y));
+            pixels.Sort((p, q) => (p.r + p.g + p.b).CompareTo(q.r + q.g + q.b));
+            Color mid = pixels[pixels.Count / 2], top = pixels[pixels.Count * 9 / 10];
+            var volumes = new StringBuilder();
+            foreach (var v in Resources.FindObjectsOfTypeAll<UnityEngine.Rendering.PostProcessing.PostProcessVolume>())
+                if (v.gameObject.scene.IsValid() && v.isActiveAndEnabled && v.weight > 0.01f && v.name != "PP Default") volumes.Append($"{v.name}={v.weight:F2};");
+            File.AppendAllText(Path.Combine(Dir, _walkFile), string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0}|{1:F0}|{2:F0}|{3:F0}|{4:F3},{5:F3},{6:F3}|{7:F3},{8:F3},{9:F3}|{10}\n", _walkScene, _walkX, cam.transform.position.x, cam.transform.position.y, mid.r, mid.g, mid.b, top.r, top.g, top.b, volumes));
+            var folder = Path.Combine(Dir, "walk"); Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, $"{Safe(_walkScene)}_{_walkX:F0}.png"), UnityEngine.ImageConversion.EncodeToPNG(copy));
+            UnityEngine.Object.Destroy(copy);
+        }
+
         static string Census(string file)
         {
             var counts = new System.Collections.Generic.SortedDictionary<string, int>();

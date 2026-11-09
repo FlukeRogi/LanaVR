@@ -11,7 +11,7 @@ Set-LanaKey 'OpenXR' 'Runtime' 'off'; Set-LanaKey 'Debug' 'LabCommands' 'true'
 function Enter-Play {
     [void](Stop-Lana)
     Start-Process "$Game\Planet of Lana.exe" -WorkingDirectory $Game; Start-Sleep 26
-    [void](Lab 'exec Main Menu [View]/Buttons/SlotsButton' 3); [void](Lab 'execi 0 Slots Group/Slot Button' 3); [void](Lab 'exec Slot [View]/Group/PlayButton' 3)
+    [void](Lab 'exec Main Menu [View]/Buttons/SlotsButton' 3); [void](Lab 'slot 2' 3); [void](Lab 'exec Slot [View]/Group/PlayButton' 3)
     Start-Sleep 22
 }
 function Is-Stuck { (Lab 'dump' 1) -match 'CANVAS Loading \[View\] en=True' }

@@ -17,7 +17,11 @@ namespace LanaVR
     {
         /// <summary>The largest face kept in video memory. Bigger images are scaled down to this, which is
         /// already sharper than current headsets can show and costs about 512 MB with its mipmaps.</summary>
-        public const int MaxFaceSize = 4096;
+        // Size of each cube face at Low, Medium and High. The packed skies are big enough for High, and are
+        // reduced as they load for the others.
+        static readonly int[] QualityFaces = { 512, 1024, 2048 };
+        public static int QualityFace => QualityFaces[Mathf.Clamp(Mathf.RoundToInt(Cfg.SkyQuality.Value), 0, QualityFaces.Length - 1)];
+        static int _loadedFace;
         const float FadeSeconds = 3f;
         const string MenuName = "Main Menu";
 
@@ -28,6 +32,9 @@ namespace LanaVR
         // Backdrop name, then the game's post-process volume, then that volume's colour effect at full weight.
         static readonly Dictionary<string, Dictionary<string, Color>> Tints = new Dictionary<string, Dictionary<string, Color>>(StringComparer.OrdinalIgnoreCase);
         static readonly List<(PostProcessVolume volume, Color color)> ActiveTints = new List<(PostProcessVolume, Color)>();
+        static readonly Dictionary<string, List<(float x, Color color)>> Shades = new Dictionary<string, List<(float x, Color color)>>(StringComparer.OrdinalIgnoreCase);
+        static Color _lastShade = Color.white;
+        public static Color TestShade = Color.white;  // For tests.
         static Color _tint = Color.white;
         public static Color CurrentTint => _tint;
         public static int TintVolumes => ActiveTints.Count;
@@ -43,6 +50,7 @@ namespace LanaVR
             _mapLoaded = true;
             Map.Clear();
             Tints.Clear();
+            Shades.Clear();
             var path = Path.Combine(Folder, "skyboxes.txt");
             if (!File.Exists(path))
             {
@@ -56,6 +64,11 @@ namespace LanaVR
                 if (line.StartsWith("Tint:", StringComparison.OrdinalIgnoreCase))
                 {
                     ParseTint(line);
+                    continue;
+                }
+                if (line.StartsWith("Shade:", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParseShade(line);
                     continue;
                 }
                 int eq = line.IndexOf('=');
@@ -88,13 +101,59 @@ namespace LanaVR
             volumes[body.Substring(slash + 1, eq - slash - 1).Trim()] = new Color(r, g, b);
         }
 
+        // Shade: Chapter 04 Backdrop = 520 1 1 1 | 573 0.85 0.85 0.9 | 700 1 1 1
+        // Places where the game's own painted sky gets darker or changes colour along a level, found by scanning
+        // the game. Each stop is a distance along the level and a colour, with smooth changes between stops.
+        static void ParseShade(string line)
+        {
+            var body = line.Substring(6);
+            int eq = body.IndexOf('=');
+            if (eq <= 0) { Plugin.L.LogWarning($"Ignoring this line in skyboxes.txt: {line}"); return; }
+            var stops = new List<(float x, Color color)>();
+            foreach (var stop in body.Substring(eq + 1).Split('|'))
+            {
+                var v = stop.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                if (v.Length != 4
+                    || !float.TryParse(v[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+                    || !float.TryParse(v[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var r)
+                    || !float.TryParse(v[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var g)
+                    || !float.TryParse(v[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var b))
+                {
+                    Plugin.L.LogWarning($"Ignoring this line in skyboxes.txt: {line}");
+                    return;
+                }
+                stops.Add((x, new Color(r, g, b)));
+            }
+            stops.Sort((p, q) => p.x.CompareTo(q.x));
+            Shades[body.Substring(0, eq).Trim()] = stops;
+        }
+
+        static Color ShadeHere()
+        {
+            if (!Shades.TryGetValue(CurrentBackdrop, out var stops) || stops.Count == 0) return Color.white;
+            var lana = PoL.Characters.Lana.LanaMachine.instance;
+            if (lana == null) return _lastShade;
+            float x = lana.transform.position.x;
+            if (x <= stops[0].x) return _lastShade = stops[0].color;
+            for (int i = 1; i < stops.Count; i++)
+                if (x <= stops[i].x) return _lastShade = Color.Lerp(stops[i - 1].color, stops[i].color, Mathf.InverseLerp(stops[i - 1].x, stops[i].x, x));
+            return _lastShade = stops[stops.Count - 1].color;
+        }
+
         /// <summary>Finds the game's volumes that tint this backdrop, lowest priority first, as the game blends them.</summary>
         static void RefreshTintVolumes()
         {
             ActiveTints.Clear();
-            if (!Tints.TryGetValue(CurrentBackdrop, out var wanted)) return;
+            Tints.TryGetValue(CurrentBackdrop, out var wanted);
+            // "*" lines apply to every backdrop, such as the game's cave effect.
+            Tints.TryGetValue("*", out var everywhere);
+            if (wanted == null && everywhere == null) return;
             foreach (var v in Resources.FindObjectsOfTypeAll<PostProcessVolume>())
-                if (v.gameObject.scene.IsValid() && wanted.TryGetValue(v.name, out var color)) ActiveTints.Add((v, color));
+            {
+                if (!v.gameObject.scene.IsValid()) continue;
+                if (wanted != null && wanted.TryGetValue(v.name, out var color)) ActiveTints.Add((v, color));
+                else if (everywhere != null && everywhere.TryGetValue(v.name, out color)) ActiveTints.Add((v, color));
+            }
             ActiveTints.Sort((a, b) => a.volume.priority.CompareTo(b.volume.priority));
         }
 
@@ -106,8 +165,44 @@ namespace LanaVR
             var target = Color.white;
             foreach (var (volume, color) in ActiveTints)
                 if (volume != null && volume.isActiveAndEnabled) target = Color.Lerp(target, color, Mathf.Clamp01(volume.weight));
-            _tint = Color.Lerp(_tint, target, 1f - Mathf.Exp(-deltaTime / 0.5f));
+            target *= ShadeHere() * TestShade;
+            if (!(_blending && BlendTint(target))) _tint = Color.Lerp(_tint, target, 1f - Mathf.Exp(-deltaTime / 0.5f));
             Native.LVR_SetSkyTint(_tint.r, _tint.g, _tint.b);
+        }
+
+        // When the backdrop changes to a new sky, the old sky stays on screen while the new one loads, then the two
+        // crossfade. The old backdrop's tint is kept until that crossfade starts, then blended to the new one in
+        // step with it, so a dimmed sky never brightens before changing, as Chapter 1's did on its way to night.
+        static bool _blending;
+        static float _blendStart, _blendAsked;
+        static Color _blendFrom;
+
+        static void StartBlend()
+        {
+            _blending = true;
+            _blendStart = -1;
+            _blendAsked = Time.unscaledTime;
+            _blendFrom = _tint;
+        }
+
+        /// <summary>Sets the tint while a sky change is under way. False once the change is over.</summary>
+        static bool BlendTint(Color target)
+        {
+            float now = Time.unscaledTime;
+            if (_blendStart < 0)
+            {
+                var status = Native.SkyboxStatus;
+                if (status.StartsWith("ready", StringComparison.Ordinal)) _blendStart = now;
+                else if (status.StartsWith("decoding", StringComparison.Ordinal) && now - _blendAsked < 15f) return true;  // Holds the old tint.
+                else { _blending = false; return false; }
+            }
+            float t = (now - _blendStart) / FadeSeconds;
+            if (t >= 1f) { _blending = false; return false; }
+            // The sky's crossfade eases by s. The new tint follows s squared, so the old sky, (1 - s) of the picture,
+            // only ever gets darker on its way out, whichever way the tint is heading.
+            float s = t * t * (3f - 2f * t);
+            _tint = Color.Lerp(_blendFrom, target, s * s);
+            return true;
         }
 
         /// <summary>A new OpenXR session starts with no sky, so the current one must be loaded again.</summary>
@@ -137,17 +232,26 @@ namespace LanaVR
             return menu ? MenuName : CurrentBackdrop;
         }
 
-        public static void Poll()
+        /// <summary>A full poll also looks for the game's colour volumes, which means searching every object, so
+        /// it is only done when levels load or unload, and every few seconds in case one appears otherwise.</summary>
+        public static void Poll(bool full = true)
         {
             var backdrop = DetectBackdrop();
             if (backdrop.Length == 0 && !Map.ContainsKey(MenuName)) return;
             if (backdrop.Length == 0) backdrop = MenuName;  // The first frames of a session, before any scene.
-            if (backdrop != CurrentBackdrop)
+            bool changed = backdrop != CurrentBackdrop;
+            if (changed)
             {
                 CurrentBackdrop = backdrop;
                 Apply(backdrop);
             }
-            RefreshTintVolumes();  // Scenes bring their own volumes, so this can change without a new backdrop.
+            if (full || changed) RefreshTintVolumes();  // Scenes bring their own volumes, so this can change without a new backdrop.
+            if (_shownFile != null && _loadedFace != QualityFace)
+            {
+                _loadedFace = QualityFace;
+                Plugin.L.LogInfo($"Sky quality is now {_loadedFace} per face");
+                Native.LVR_LoadSkybox(Path.Combine(Folder, _shownFile), _loadedFace, FadeSeconds);
+            }
         }
 
         static void Apply(string backdrop)
@@ -169,7 +273,9 @@ namespace LanaVR
                 return;
             }
             Plugin.L.LogInfo($"Backdrop is now '{backdrop}', showing {file}");
-            Native.LVR_LoadSkybox(path, MaxFaceSize, _shownFile == null ? 0f : FadeSeconds);
+            _loadedFace = QualityFace;
+            if (_shownFile != null) StartBlend();
+            Native.LVR_LoadSkybox(path, _loadedFace, _shownFile == null ? 0f : FadeSeconds);
             _shownFile = file;
         }
     }

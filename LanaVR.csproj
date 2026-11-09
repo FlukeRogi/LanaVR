@@ -24,7 +24,7 @@
     <Reference Include="$(GameDir)\BepInEx\interop\*.dll" Private="false" />
   </ItemGroup>
   <ItemGroup>
-    <SkyboxImage Include="skybox\*.png;skybox\skyboxes.txt" />
+    <SkyboxImage Include="skybox\*.lvsky;skybox\*.png;skybox\skyboxes.txt" />
   </ItemGroup>
   <Target Name="Deploy" AfterTargets="Build" Condition="Exists('$(GameDir)\BepInEx')">
     <Copy SourceFiles="@(SkyboxImage)" DestinationFolder="$(GameDir)\BepInEx\plugins\LanaVR\skybox" />

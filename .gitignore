@@ -4,13 +4,14 @@
 
 !/.gitignore
 !/README.md
-!/TESTING.md
+!/DEVELOPMENT.md
 !/LanaVR.csproj
 
 !/src/
 
 !/native/
 /native/build/
+/native/SkyKey.h
 
 !/install/
 
@@ -26,5 +27,6 @@
 !/tools/
 /tools/*
 !/tools/make_package.ps1
+!/tools/pack_skies.ps1
 !/tools/mock_runtime.json
 !/tools/prof/

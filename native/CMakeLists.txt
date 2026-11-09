@@ -6,7 +6,7 @@ set(XR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/openxr")
 
 add_library(LanaVRNative SHARED LanaVRNative.cpp Skybox.cpp)
 target_include_directories(LanaVRNative PRIVATE "${XR}/include")
-target_link_libraries(LanaVRNative PRIVATE "${XR}/native/x64/release/lib/openxr_loader.lib" d3d11 dxgi windowscodecs ole32)
+target_link_libraries(LanaVRNative PRIVATE "${XR}/native/x64/release/lib/openxr_loader.lib" d3d11 dxgi windowscodecs ole32 bcrypt)
 
 add_library(LanaMockXR SHARED mock/MockRuntime.cpp)
 target_include_directories(LanaMockXR PRIVATE "${XR}/include")

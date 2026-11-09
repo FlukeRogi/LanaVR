@@ -29,6 +29,7 @@ namespace LanaVR
             public BepInEx.Configuration.ConfigEntry<float> Entry;
             public float Min, Max, Step, Default;
             public string Format;
+            public string[] Labels;
             public int LastStep = -1, Notches;
         }
 
@@ -53,7 +54,9 @@ namespace LanaVR
 
         public bool IsOpen => _open;
         public string Status => $"built={_built} open={_open} selected={(EventSystem.current?.currentSelectedGameObject != null ? EventSystem.current.currentSelectedGameObject.name : "none")}" +
-            (_built ? $" pageCanvas={_viewCanvas.enabled} pageAlpha={_viewGroup.alpha} settingsCanvas={_settings.canvas.enabled} settingsGroup={_settingsGroup.interactable}/{_settingsGroup.alpha} entryInteractable={_entryButton.GetComponent<Button>().IsInteractable()} entryNav={_entryButton.GetComponent<Button>().navigation.mode}" : "");
+            (_built ? $" pageCanvas={_viewCanvas.enabled} pageAlpha={_viewGroup.alpha} settingsCanvas={_settings.canvas.enabled} settingsGroup={_settingsGroup.interactable}/{_settingsGroup.alpha} entryInteractable={_entryButton.GetComponent<Button>().IsInteractable()} entryNav={_entryButton.GetComponent<Button>().navigation.mode}" : "") + SelectedSlider;
+
+        string SelectedSlider { get { var s = EventSystem.current?.currentSelectedGameObject; foreach (var r in _rows) if (r.Choice != null && s != null && r.Choice.gameObject == s) return $" slider={r.Choice.slider.Value:F3} step={r.Choice.slider.step:F3} lastStep={r.LastStep}"; return ""; } }
 
         void Start() { I = this; }
 
@@ -117,6 +120,7 @@ namespace LanaVR
         {
             var kb = Keyboard.current;
             if (kb != null && kb.f8Key.wasPressedThisFrame) XrRig.I?.RequestRecenter();
+            Scenery.PollKeys(kb);
             var pad = Gamepad.current;
             if (pad != null && pad.leftStickButton.isPressed && pad.rightStickButton.isPressed
                 && (pad.leftStickButton.wasPressedThisFrame || pad.rightStickButton.wasPressedThisFrame))
@@ -244,14 +248,23 @@ namespace LanaVR
             AddSlider(sliders[1], "SCREEN DEPTH", Cfg.ScreenDistance, 1f, 10f, 0.25f, Cfg.DefaultDistance, "{0:0.00} m");
             AddSlider(sliders[2], "STEREO STRENGTH", Cfg.Stereo, 0f, 3f, 0.1f, Cfg.DefaultStereo, "{0:0.0}");
             AddSlider(sliders[3], "HEAD TRACKING", Cfg.HeadTracking, 0f, 2f, 0.1f, Cfg.DefaultHeadTracking, "{0:0.0}");
-            AddSlider(skyRow, "SKY BRIGHTNESS", Cfg.SkyBrightness, 0f, 1f, 0.05f, Cfg.DefaultSkyBrightness, "{0:0.00}");
+            AddSlider(skyRow, "SKY QUALITY", Cfg.SkyQuality, 0f, 2f, 1f, Cfg.DefaultSkyQuality, "{0:0}", new[] { "LOW", "MEDIUM", "HIGH" });
             skyRow.SetActive(true);
             AddSlider(waterRow, "WATER HEIGHT", Cfg.WaterHeight, -1f, 1f, 0.05f, Cfg.DefaultWaterHeight, "{0:+0.00;-0.00;0.00} m");
             waterRow.SetActive(true);
             AddSlider(rippleRow, "RIPPLE STRENGTH", Cfg.RippleStrength, 0f, 2f, 0.1f, Cfg.DefaultRipple, "{0:0.0}");
             rippleRow.SetActive(true);
-            AddToggle(group, rippleRow.transform.GetSiblingIndex() + 1, "CUTSCENE BORDERS", Cfg.CutsceneBorders, Cfg.DefaultCutsceneBorders);
-            AddToggle(group, rippleRow.transform.GetSiblingIndex() + 1, "3D SCENERY", Cfg.Scenery, Cfg.DefaultScenery);
+            var reflectionRow = CloneInactive(sliders[3], group);
+            reflectionRow.transform.SetSiblingIndex(rippleRow.transform.GetSiblingIndex() + 1);
+            AddSlider(reflectionRow, "REFLECTION QUALITY", Cfg.ReflectionQuality, 0f, 2f, 1f, Cfg.DefaultReflectionQuality, "{0:0}", new[] { "LOW", "MEDIUM", "HIGH" });
+            reflectionRow.SetActive(true);
+            var sizeRow = CloneInactive(sliders[3], group);
+            sizeRow.transform.SetSiblingIndex(reflectionRow.transform.GetSiblingIndex() + 1);
+            AddSlider(sizeRow, "SCENERY SIZE", Cfg.ScenerySize, 0.5f, 1.5f, 0.05f, Cfg.DefaultScenerySize, "{0:0%}");
+            sizeRow.SetActive(true);
+            AddToggle(group, sizeRow.transform.GetSiblingIndex() + 1, "CUTSCENE BORDERS", Cfg.CutsceneBorders, Cfg.DefaultCutsceneBorders);
+            AddToggle(group, sizeRow.transform.GetSiblingIndex(), "3D SCENERY", Cfg.Scenery, Cfg.DefaultScenery);
+            AddToggle(group, reflectionRow.transform.GetSiblingIndex(), "SCREEN REFLECTION", Cfg.ScreenReflection, Cfg.DefaultScreenReflection);
 
             _view.SetActive(true);
             _viewCanvas.enabled = false;
@@ -260,7 +273,7 @@ namespace LanaVR
             _viewGroup.blocksRaycasts = false;
         }
 
-        void AddSlider(GameObject row, string title, BepInEx.Configuration.ConfigEntry<float> entry, float min, float max, float step, float def, string format)
+        void AddSlider(GameObject row, string title, BepInEx.Configuration.ConfigEntry<float> entry, float min, float max, float step, float def, string format, string[] labels = null)
         {
             // The game's slider base class is abstract, so the clone keeps the audio row's script. The
             // patches below stop this instance from reading or changing the game's audio settings.
@@ -274,7 +287,7 @@ namespace LanaVR
             // The game's slider is normalized, and its arrows move it by one notch of this size.
             int notches = Mathf.RoundToInt((max - min) / step);
             slider.step = 1f / notches;
-            _rows.Add(new Row { Choice = choice, Entry = entry, Min = min, Max = max, Step = step, Default = def, Format = format, Notches = notches });
+            _rows.Add(new Row { Choice = choice, Entry = entry, Min = min, Max = max, Step = step, Default = def, Format = format, Labels = labels, Notches = notches });
         }
 
         /// <summary>On/off rows are clones of the game's Rumble row, so they keep its arrows and its
@@ -327,7 +340,7 @@ namespace LanaVR
         {
             r.LastStep = steps;
             r.Choice.slider.SetValue((float)steps / r.Notches);
-            r.Choice.SetTextValue(string.Format(System.Globalization.CultureInfo.InvariantCulture, r.Format, r.Min + steps * r.Step));
+            r.Choice.SetTextValue(r.Labels != null ? r.Labels[steps] : string.Format(System.Globalization.CultureInfo.InvariantCulture, r.Format, r.Min + steps * r.Step));
         }
 
         void ResetDefaults()

@@ -13,6 +13,8 @@ struct Water {
     float time;            // Seconds, for the ripples
     float ripple;          // 1 is the normal strength, 0 is still water
     float tint[3];         // Linear colour multiplier for the sky and water, matching the game's grading
+    float reveal;
+    float reflectionQuality;  // 0 low, 1 medium, 2 high sharpness for the screen's reflection, negative for none          // Linear multiplier for the whole layer, for fading it in from black
     int debug;             // Test output: 1 water distance, 2 screen hit, 3 no water
     float screenPos[3];
     float screenRot[4];
@@ -34,6 +36,7 @@ void BeginPass(ID3D11DeviceContext* context);
 void DrawEye(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, int width, int height,
              const float tangents[4], const float viewRotation[4], float skyYaw, float brightness, const Water& water);
 void EndPass(ID3D11DeviceContext* context);
+void ForgetSceneryViews();
 void ReleaseGpu();
 
 // For logs and tests: "none", "decoding", "failed: <why>", or "ready <face size>".

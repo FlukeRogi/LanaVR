@@ -36,7 +36,7 @@ struct Frame {
     double periodSeconds;
 };
 struct Screen { Eye pose; float width, height; };
-struct Pending { XrTime displayTime; XrDuration period; bool shouldRender; bool viewsValid; Screen screen; XrView views[2]; float skyBrightness; float skyYaw; float waterHeight; float ripple; double time; float skyTint[3]; };
+struct Pending { XrTime displayTime; XrDuration period; bool shouldRender; bool viewsValid; Screen screen; XrView views[2]; float skyBrightness; float skyYaw; float waterHeight; float ripple; double time; float skyTint[3]; float reveal; float reflectionQuality; };
 
 std::mutex g_logLock;
 std::vector<std::string> g_logs;
@@ -71,6 +71,8 @@ Chain g_skyChain[2];
 std::vector<ID3D11RenderTargetView*> g_skyTargets[2];
 float g_skyBrightness = 1.0f, g_skyYaw = 0.0f;
 float g_skyTint[3] = {1.0f, 1.0f, 1.0f};
+float g_reveal = 1.0f;
+float g_reflectionQuality = 1.0f;
 
 // Water. Its base level is the room's floor when the runtime knows it, otherwise a typical height below
 // the player's head. The offset comes from the menu, and the water never rises above the head.
@@ -82,6 +84,7 @@ std::atomic<int> g_waterDebug{0};
 
 // The 3D scenery is drawn by Unity for each eye, then blended into the sky layer here.
 ID3D11Texture2D* g_scenery[2] = {nullptr, nullptr};
+std::atomic<bool> g_sceneryChanged{false};
 ID3D11Texture2D* g_sceneryMirror[2] = {nullptr, nullptr};
 std::atomic<bool> g_sceneryOn{false};
 
@@ -196,10 +199,13 @@ bool DrawSky(const Pending& p, XrCompositionLayerProjectionView views[2]) {
     water.time = (float)p.time;
     water.ripple = p.ripple;
     for (int c = 0; c < 3; c++) water.tint[c] = p.skyTint[c];
+    water.reveal = p.reveal;
+    water.reflectionQuality = p.reflectionQuality;
     water.debug = g_waterDebug.load();
     water.screenPos[0] = p.screen.pose.px; water.screenPos[1] = p.screen.pose.py; water.screenPos[2] = p.screen.pose.pz;
     water.screenRot[0] = p.screen.pose.qx; water.screenRot[1] = p.screen.pose.qy; water.screenRot[2] = p.screen.pose.qz; water.screenRot[3] = p.screen.pose.qw;
     water.screenSize[0] = p.screen.width; water.screenSize[1] = p.screen.height;
+    if (g_sceneryChanged.exchange(false)) sky::ForgetSceneryViews();
     sky::BeginPass(g_ctx);
     for (int i = 0; i < 2 && ok; i++) {
         uint32_t idx = 0;
@@ -503,6 +509,17 @@ API void LVR_SetSkyTint(float r, float g, float b) {
     g_skyTint[2] = std::pow(std::max(b, 0.0f), 2.2f);
 }
 
+// How far the sky layer has faded in, 0 black to 1 full, as a perceived level like the tint.
+API void LVR_SetReveal(float level) {
+    std::lock_guard<std::mutex> l(g_screenLock);
+    g_reveal = std::pow(std::min(std::max(level, 0.0f), 1.0f), 2.2f);
+}
+
+API void LVR_SetReflection(float quality) {
+    std::lock_guard<std::mutex> l(g_screenLock);
+    g_reflectionQuality = quality;
+}
+
 API void LVR_SetWater(float headY, float offset, float ripple) {
     std::lock_guard<std::mutex> l(g_screenLock);
     g_waterHeadY = headY;
@@ -525,6 +542,7 @@ API float LVR_GetFloor() {
 }
 
 API void LVR_SetScenery(void* left, void* right, void* mirrorLeft, void* mirrorRight) {
+    g_sceneryChanged = true;
     g_scenery[0] = (ID3D11Texture2D*)left;
     g_scenery[1] = (ID3D11Texture2D*)right;
     g_sceneryMirror[0] = (ID3D11Texture2D*)mirrorLeft;
@@ -602,6 +620,8 @@ API void LVR_BeginFrame(Frame* out) {
         pending.skyBrightness = g_skyBrightness;
         pending.skyYaw = g_skyYaw;
         for (int c = 0; c < 3; c++) pending.skyTint[c] = g_skyTint[c];
+        pending.reveal = g_reveal;
+        pending.reflectionQuality = g_reflectionQuality;
         float base = g_floorKnown ? g_floorY : g_waterHeadY - kAssumedHeadAboveFloor;
         g_floorBase = base;
         g_waterY =std::min(base + g_waterOffset, g_waterHeadY - kMinimumBelowHead);

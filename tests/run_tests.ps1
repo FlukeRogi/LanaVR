@@ -1,7 +1,7 @@
 # End-to-end tests: drives the real game through the mock HMD and a virtual gamepad.
 # Run from anywhere: powershell -ExecutionPolicy Bypass -File tests\run_tests.ps1
 # Uses the save slot given by -Slot, starts a new game there if it is empty, and restores VR settings afterwards.
-param([int]$Slot = 0)
+param([int]$Slot = 2)  # The first slots hold real progress that syncs through Steam Cloud. Tests stay on the third.
 . "$PSScriptRoot\lab.ps1"
 $ErrorActionPreference = 'Stop'
 $script:Pass = 0; $script:Fail = 0
@@ -50,9 +50,14 @@ $savesBefore = (Get-ChildItem $saveFolder -Filter *.sav | ForEach-Object { $_.Na
 $savedCfg = if (Test-Path $Cfg) { Get-Content $Cfg -Raw } else { $null }
 Set-Key 'OpenXR' 'Runtime' "$Root\tools\mock_runtime.json"
 Set-Key 'Debug' 'LabCommands' 'true'
+# Every backdrop has a sky now, so one is taken out of the installed list to test what happens with an unlisted one.
+$installedMap = "$Game\BepInEx\plugins\LanaVR\skybox\skyboxes.txt"
+$savedMap = Get-Content $installedMap
+# A flat shade on the night backdrop, replacing its scanned one, so the sky checks can read it exactly.
+@($savedMap | Where-Object { $_ -notmatch '^Chapter 03 Backdrop 1 =' }) + 'Shade: Chapter 01 Backdrop Night = -100000 0.5 0.5 0.5 | 100000 0.5 0.5 0.5' | Set-Content $installedMap -Encoding ascii
 Set-Key 'Screen' 'Width' '3'; Set-Key 'Screen' 'Distance' '2.5'; Set-Key 'Stereo' 'Strength' '1'; Set-Key 'Stereo' 'HeadTracking' '1'
 # The sky and water checks read exact pixels, so these sections run without the scenery. Reset turns it back on.
-Set-Key 'Skybox' 'Brightness' '1'; Set-Key 'Water' 'Level' '0'; Set-Key 'Water' 'RippleStrength' '1'; Set-Key 'Scenery' 'Enabled' 'false'
+Set-Key 'Skybox' 'Quality' '1'; Set-Key 'Water' 'Level' '0'; Set-Key 'Water' 'RippleStrength' '1'; Set-Key 'Water' 'ReflectionQuality' '1'; Set-Key 'Water' 'ScreenReflection' 'true'; Set-Key 'Scenery' 'Enabled' 'false'; Set-Key 'Scenery' 'Scale' '1'; Set-Key 'Scenery' 'Position' '0.5'
 if (Test-Path "$Lab\mock_nostage.txt") { [IO.File]::Delete("$Lab\mock_nostage.txt") }
 Set-Head
 foreach ($f in 'mock_log.txt', 'mock_dump.txt', 'mock_exit.txt', 'cmd.txt') { if (Test-Path "$Lab\$f") { Clear-Content "$Lab\$f"; if ($f -ne 'mock_log.txt') { [IO.File]::Delete("$Lab\$f") } } }
@@ -178,7 +183,7 @@ function Measure-SkyError([double]$Yaw, [double]$Pitch, [double]$SkyYaw = 0) {
 [void](Lab 'waterdebug 3' 1)  # The sky alone, for the sky checks. The water has its own section below.
 $skyDir = "$Lab\sky_test"; New-Item -ItemType Directory -Force $skyDir | Out-Null
 $found = Lab 'sky' 1
-Check 'The main menu shows its listed skybox' ((Wait-Sky 'ready_*') -eq 'ready_512' -and (Val $found 'file') -eq 'backdrop.png' -and (Val $found 'backdrop') -eq 'Main_Menu') $found.Trim()
+Check 'The main menu shows its listed skybox' ((Wait-Sky 'ready_*') -eq 'ready_1024' -and (Val $found 'file') -eq 'FS020_Day_Sunless.lvsky' -and (Val $found 'backdrop') -eq 'Main_Menu') $found.Trim()
 Check 'skyboxes.txt lists the backgrounds' ((Num $found 'mapped') -ge 15) $found.Trim()
 New-DirectionCube "$skyDir\dir64.png" 64
 [void](Lab "skyload $skyDir\dir64.png|4096" 1)
@@ -235,15 +240,19 @@ Check 'A missing image is reported, not fatal' ($st -like 'failed*' -and ((Val (
 'not an image' | Set-Content "$skyDir\broken.png" -Encoding ascii
 [void](Lab "skyload $skyDir\broken.png|4096" 1); $st = Wait-Sky 'failed*'
 Check 'A corrupt image is reported, not fatal' ($st -like 'failed*' -and ((Val (Lab 'vr' 1) 'active') -eq 'True')) $st
+# A packed sky holds its bytes after a header, scrambled at the start, so it can't simply be renamed or opened.
+$pack = [Text.Encoding]::ASCII.GetBytes("LVSKY1`r`n") + [Text.Encoding]::ASCII.GetBytes('not an image, even once unscrambled')
+[IO.File]::WriteAllBytes("$skyDir\broken.lvsky", $pack)
+[void](Lab "skyload $skyDir\broken.lvsky|4096" 1); $st = Wait-Sky 'failed*'
+Check 'A damaged packed sky is reported, not fatal' ($st -like 'failed*') $st
+$packedHead = [byte[]]::new(16); $fs = [IO.File]::OpenRead("$Root\skybox\FS020_Day_Sunless.lvsky"); [void]$fs.Read($packedHead, 0, 16); $fs.Close()
+Check 'A packed sky isn''t a readable PNG' ([Text.Encoding]::ASCII.GetString($packedHead, 8, 8) -notmatch 'PNG') ''
 [void](Lab "skyload $skyDir\dir64.png|4096" 1); [void](Wait-Sky 'ready_*')
-Set-Head -Yaw 0; [void](Lab 'set sky 0.5' 1); Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
+Set-Head -Yaw 0; [void](Lab 'skyshade 0.5 0.5 0.5' 1); Start-Sleep 4; [void](Get-EyeDump 't_sky' 320)
 $half = [Drawing.Bitmap]::FromFile("$Lab\mock_sky_left.bmp"); $hp = $half.GetPixel(1032, 1136); $half.Dispose()
-[void](Lab 'set sky 1' 1); Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
+[void](Lab 'skyshade 1 1 1' 1); Start-Sleep 4; [void](Get-EyeDump 't_sky' 320)
 $full = [Drawing.Bitmap]::FromFile("$Lab\mock_sky_left.bmp"); $fp = $full.GetPixel(1032, 1136); $full.Dispose()
-Check 'Sky brightness dims the sky' ($hp.B -lt $fp.B -and $hp.B -gt 0) "half=$($hp.B) full=$($fp.B)"
-[void](Lab 'set sky 0' 1); Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
-Check 'Sky brightness 0 removes the layer' ((Get-Content "$Lab\mock_layers.txt")[0] -match 'layers=2')
-[void](Lab 'set sky 1' 1)
+Check 'A shade dims the sky' ($hp.B -lt $fp.B -and $hp.B -gt 0) "half=$($hp.B) full=$($fp.B)"
 # Crossfade: solid colours, read from the middle of the view.
 function New-SolidCube([string]$Path, [Drawing.Color]$Color) { $b = New-Object Drawing.Bitmap 256, 192; $g = [Drawing.Graphics]::FromImage($b); $g.Clear($Color); $b.Save($Path, [Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $b.Dispose() }
 function Read-SkyCentre { [void](Get-EyeDump 't_sky' 320); $i = [Drawing.Bitmap]::FromFile("$Lab\mock_sky_left.bmp"); $p = $i.GetPixel(1032, 1136); $i.Dispose(); $p }
@@ -322,6 +331,11 @@ foreach ($fx in 0.3, 0.4, 0.5, 0.6, 0.7) { foreach ($fy in 0.2, 0.3, 0.4, 0.5, 0
 $img.Dispose()
 Check 'The water reflects the screen in the right place' ($n -ge 3 -and $worst -lt 0.02) ("$n points, worst={0:F3} of the screen" -f $worst)
 [void](Lab 'waterdebug 0' 1); Start-Sleep 1; [void](Get-EyeDump 't_refl' 320); Copy-Item "$Lab\mock_sky_left.bmp" "$Lab\t_refl.L.bmp" -Force
+[void](Lab 'set screenreflection 0' 1); Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
+$off = Diff-Images "$Lab\t_refl.L.bmp" "$Lab\mock_sky_left.bmp"; Copy-Item "$Lab\mock_sky_left.bmp" "$Lab\t_refl_off.L.bmp" -Force
+[void](Lab 'set screenreflection 1' 1); Start-Sleep 1
+# The reflection covers part of this view, and the animated menu alone changes it by about 0.1.
+Check 'Turning the screen reflection off removes it from the water' ($off -gt 0.5) ("diff={0:F2}" -f $off)
 $img = [Drawing.Bitmap]::FromFile("$Lab\t_refl.L.bmp")
 Set-Head -Yaw 180 -Pitch -40; Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
 $noRefl = Diff-Images "$Lab\t_refl.L.bmp" "$Lab\mock_sky_left.bmp"; $img.Dispose()
@@ -330,7 +344,8 @@ Check 'The game image shows in the water' ($noRefl -gt 3) ("diff={0:F2}" -f $noR
 Set-Head -Yaw 90 -Pitch -30; Start-Sleep 1; [void](Get-EyeDump 't_sky' 320); Copy-Item "$Lab\mock_sky_left.bmp" "$Lab\t_still.bmp" -Force
 Start-Sleep 1; [void](Get-EyeDump 't_sky' 320)
 $still = Diff-Images "$Lab\t_still.bmp" "$Lab\mock_sky_left.bmp"
-Check 'Ripple strength 0 gives still water' ($still -lt 0.1) ("diff={0:F3}" -f $still)
+# Still water still reflects the animated menu, which reads up to about 0.12 here. Rippling water reads about 4.
+Check 'Ripple strength 0 gives still water' ($still -lt 0.3) ("diff={0:F3}" -f $still)
 [void](Lab 'set ripple 1' 1); Start-Sleep 1; [void](Get-EyeDump 't_sky' 320); Copy-Item "$Lab\mock_sky_left.bmp" "$Lab\t_move.bmp" -Force
 Start-Sleep 2; [void](Get-EyeDump 't_sky' 320)
 $move = Diff-Images "$Lab\t_move.bmp" "$Lab\mock_sky_left.bmp"
@@ -364,19 +379,41 @@ Pad 'down'; Pad 'left' 2; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Head tracking slider' (Near (Num $c 'head') 0.8) $c.Trim()
 Pad 'right' 40; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Sliders stop at their maximum' (Near (Num $c 'head') 2.0) $c.Trim()
-Pad 'down'; Pad 'left' 4; Start-Sleep 1
-$c = Lab 'cfg' 1; Check 'Sky brightness slider' (Near (Num $c 'sky') 0.8) $c.Trim()
+Pad 'down'; Start-Sleep 1
+$m = Lab 'menu' 1; Check 'Sky quality row is reachable' ($m -match 'selected=VR SKY QUALITY') $m.Trim()
+Pad 'right'; Start-Sleep 1; $c = Lab 'cfg' 1; Check 'Sky quality goes up to High' (Near (Num $c 'skyquality') 2) $c.Trim()
+Check 'High quality reloads the sky at 2048' ((Wait-Sky 'ready_2048') -eq 'ready_2048') (Lab 'sky' 1).Trim()
+Pad 'left' 2; Start-Sleep 1; $c = Lab 'cfg' 1; Check 'Sky quality goes down to Low' (Near (Num $c 'skyquality') 0) $c.Trim()
+Check 'Low quality reloads the sky at 512' ((Wait-Sky 'ready_512') -eq 'ready_512') (Lab 'sky' 1).Trim()
+Pad 'right'; Start-Sleep 1
 Pad 'down'; Pad 'right' 2; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Water height slider' (Near (Num $c 'water') 0.1) $c.Trim()
 Pad 'down'; Pad 'left' 3; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Ripple strength slider' (Near (Num $c 'ripple') 0.7) $c.Trim()
 Check 'The VR page leaves audio untouched' ((Lab 'audio' 1).Trim() -eq $audioBefore)
 Pad 'down'; $m = Lab 'menu' 1
+Check 'Screen reflection row is reachable' ($m -match 'selected=VR SCREEN REFLECTION') $m.Trim()
+$c = Lab 'cfg' 1; Check 'Screen reflection defaults to on' ($c -match 'screenreflection=True') $c.Trim()
+Pad 'left'; Start-Sleep 1
+$c = Lab 'cfg' 1; Check 'Left turns the screen reflection off' ($c -match 'screenreflection=False') $c.Trim()
+Pad 'right'; Start-Sleep 1
+$c = Lab 'cfg' 1; Check 'Right turns the screen reflection on' ($c -match 'screenreflection=True') $c.Trim()
+Pad 'left'; Start-Sleep 1
+Pad 'down'; $m = Lab 'menu' 1
+Check 'Reflection quality row is reachable' ($m -match 'selected=VR REFLECTION QUALITY') $m.Trim()
+Pad 'right'; Start-Sleep 1; $c = Lab 'cfg' 1; Check 'Water reflection goes up to High' (Near (Num $c 'reflection') 2) $c.Trim()
+Pad 'left' 2; Start-Sleep 1; $c = Lab 'cfg' 1; Check 'Water reflection goes down to Low' (Near (Num $c 'reflection') 0) $c.Trim()
+Pad 'right'; Start-Sleep 1
+Pad 'down'; $m = Lab 'menu' 1
 Check '3D scenery row is reachable' ($m -match 'selected=VR 3D SCENERY') $m.Trim()
 Pad 'right'; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Right turns 3D scenery on' ($c -match 'scenery=True') $c.Trim()
 Pad 'left'; Start-Sleep 1
 $c = Lab 'cfg' 1; Check 'Left turns 3D scenery off' ($c -match 'scenery=False') $c.Trim()
+Pad 'down'; $m = Lab 'menu' 1
+Check 'Scenery size row is reachable' ($m -match 'selected=VR SCENERY SIZE') $m.Trim()
+Pad 'left'; Start-Sleep 1
+$c = Lab 'cfg' 1; Check 'Scenery size slider' (Near (Num $c 'scenerysize') 0.95) $c.Trim()
 $c = Lab 'cfg' 1; Check 'Cutscene borders default to off' ($c -match 'borders=False') $c.Trim()
 Pad 'down'; $m = Lab 'menu' 1
 Check 'Cutscene borders row is reachable' ($m -match 'selected=VR CUTSCENE BORDERS') $m.Trim()
@@ -389,7 +426,7 @@ Pad 'down'; $m = Lab 'menu' 1
 Check 'Reset row is reachable' ($m -match 'selected=ResetToDefaultButton') $m.Trim()
 Pad 'a'; Start-Sleep 1
 $c = Lab 'cfg' 1
-Check 'Reset restores the defaults' ((Near (Num $c 'width') 3) -and (Near (Num $c 'distance') 2.5) -and (Near (Num $c 'stereo') 1) -and (Near (Num $c 'head') 1) -and (Near (Num $c 'sky') 1) -and (Near (Num $c 'water') -0.5) -and (Near (Num $c 'ripple') 1) -and ($c -match 'borders=False') -and ($c -match 'scenery=True')) $c.Trim()
+Check 'Reset restores the defaults' ((Near (Num $c 'width') 3) -and (Near (Num $c 'distance') 2.5) -and (Near (Num $c 'stereo') 1) -and (Near (Num $c 'head') 1) -and (Near (Num $c 'skyquality') 1) -and (Near (Num $c 'water') -0.5) -and (Near (Num $c 'ripple') 1) -and (Near (Num $c 'reflection') 1) -and ($c -match 'screenreflection=True') -and ($c -match 'borders=False') -and ($c -match 'scenery=True') -and (Near (Num $c 'scenerysize') 1)) $c.Trim()
 Pad 'b'; Start-Sleep 1
 $m = Lab 'menu' 1
 Check 'B closes the VR page, back to Settings' ($m -match 'open=False' -and $m -match 'selected=SettingsVRButton') $m.Trim()
@@ -400,7 +437,7 @@ Check 'The game''s settings file was not changed' ((Get-FileHash "$env:USERPROFI
 
 # --- Gameplay and the pause menu ------------------------------------------------------------------
 [void](Lab 'exec Main Menu [View]/Buttons/SlotsButton' 3)
-[void](Lab "execi $Slot Slots Group/Slot Button" 3)
+$r = Lab "slot $Slot" 3; Check 'The test save slot opens' ($r -match 'opened slot') $r.Trim()
 [void](Lab 'exec Slot [View]/Group/PlayButton' 3)
 Start-Sleep 30
 $d = Lab 'dump' 1
@@ -433,6 +470,44 @@ Check 'The scenery has stereo depth' ($deckEyes -gt 2) ("diff={0:F2}" -f $deckEy
 Set-Head -X 0.3 -Pitch -75; Start-Sleep 1; Sky-Copy 't_deck_moved'
 $deckMoved = Diff-Images "$Lab\t_deck.L.bmp" "$Lab\t_deck_moved.L.bmp"
 Check 'The scenery stays put when the head moves' ($deckMoved -gt 5) ("diff={0:F2}" -f $deckMoved)
+# Tiny head moves must change the picture evenly. Scenery placed far from the world's origin snapped to a 2 mm grid,
+# which gave runs of identical images followed by jumps, seen in a headset as a fast jitter.
+function Scenery-Diff([string]$A, [string]$B) {
+    $x = [Drawing.Bitmap]::FromFile($A); $y = [Drawing.Bitmap]::FromFile($B); $sum = 0.0; $n = 0
+    for ($j = 4; $j -lt $x.Height; $j += 8) { for ($i = 4; $i -lt $x.Width; $i += 8) {
+        $p = $x.GetPixel($i, $j); $q = $y.GetPixel($i, $j)
+        $sum += [math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B); $n += 3 } }
+    $x.Dispose(); $y.Dispose(); $sum / $n
+}
+function Scenery-Steps([string]$Axis) {
+    $steps = @()
+    for ($i = 0; $i -le 8; $i++) {
+        $d = 0.2 + $i * 0.00025
+        if ($Axis -eq 'X') { Set-Head -X $d -Pitch -40 } else { Set-Head -Y $d -Pitch -40 }
+        Start-Sleep -Milliseconds 400
+        [void](Lab "sceneryshot t_step$i.png" 1)
+        if ($i -gt 0) { $steps += Scenery-Diff "$Lab\t_step$($i - 1).png" "$Lab\t_step$i.png" }
+    }
+    $steps
+}
+foreach ($axis in 'X', 'Y') {
+    $steps = @(Scenery-Steps $axis); $m = $steps | Measure-Object -Minimum -Maximum
+    Check "The scenery follows tiny head moves evenly on $axis" ($m.Minimum -gt 0 -and $m.Maximum -lt $m.Minimum * 3) ("smallest={0:F3} largest={1:F3}" -f $m.Minimum, $m.Maximum)
+}
+Set-Head -Pitch -75; Start-Sleep 1
+[void](Lab 'set scenerysize 1.33' 1); Start-Sleep 1; Sky-Copy 't_deck_big'
+$deckBig = Diff-Images "$Lab\t_deck.L.bmp" "$Lab\t_deck_big.L.bmp"
+Check 'Scenery size changes the scenery' ($deckBig -gt 5) ("diff={0:F2}" -f $deckBig)
+[void](Lab 'set scenerysize 1' 1); Start-Sleep 1
+$c = Lab 'cfg' 1; Check 'The scenery has finished fading in' (Near (Num $c 'fade') 1) $c.Trim()
+[void](Lab 'set sceneryposition 1.2' 1); Start-Sleep 1; Sky-Copy 't_deck_fwd'
+$deckFwd = Diff-Images "$Lab\t_deck.L.bmp" "$Lab\t_deck_fwd.L.bmp"
+Check 'Standing further forward moves the scenery' ($deckFwd -gt 3) ("diff={0:F2}" -f $deckFwd)
+[void](Lab 'set sceneryposition 9' 1); $c = Lab 'cfg' 1
+Check 'The standing position is kept on the platform' (Near (Num $c 'standing') 1.2) $c.Trim()
+[void](Lab 'set sceneryposition 0.5' 1); Start-Sleep 1
+$f = Lab 'focus' 1; Check 'The game''s window claims the foreground' ($f -match 'foreground=True') $f.Trim()
+Set-Head -Yaw 0 -Pitch -75; Start-Sleep 1; Sky-Copy 't_deck'
 Set-Head -Yaw 40 -Pitch -75; Start-Sleep 1; Pad 'recenter'; Start-Sleep 1; Sky-Copy 't_deck_turned'
 $deckTurned = Diff-Images "$Lab\t_deck.L.bmp" "$Lab\t_deck_turned.L.bmp"
 Check 'Recentering turns the scenery with the screen' ($deckTurned -lt 8) ("diff={0:F2}" -f $deckTurned)
@@ -515,13 +590,13 @@ Check 'Backing out still returns to play' ($d -notmatch 'CANVAS (Pause|Settings)
 # --- Skybox follows the game's backdrop -----------------------------------------------------------
 function Wait-Backdrop([string]$Want) { for ($i = 0; $i -lt 30; $i++) { $x = Lab 'sky' 1; if ((Val $x 'backdrop') -eq $Want) { return $x }; Start-Sleep 1 }; Lab 'sky' 1 }
 [void](Lab 'goto Chapter 01 Scene 65' 1); $x = Wait-Backdrop 'Chapter_01_Backdrop_Night'
-Check 'Night backdrop shows the night sky' ((Val $x 'file') -eq 'backdropnight.png') $x.Trim()
+Check 'Night backdrop shows the night sky' ((Val $x 'file') -eq 'FS002_Night_Moonless.lvsky') $x.Trim()
 Start-Sleep 18
 [void](Lab 'goto Chapter 03 Scene 70' 1); $x = Wait-Backdrop 'Chapter_03_Backdrop_1'
-Check 'An unlisted backdrop keeps the current sky' ((Val $x 'file') -eq 'backdropnight.png' -and (Val $x 'status') -like 'ready*') $x.Trim()
+Check 'An unlisted backdrop keeps the current sky' ((Val $x 'file') -eq 'FS002_Night_Moonless.lvsky' -and (Val $x 'status') -like 'ready*') $x.Trim()
 Start-Sleep 18
 [void](Lab 'goto Chapter 01 Scene 10' 1); $x = Wait-Backdrop 'Chapter_01_Backdrop'
-Check 'The daytime backdrop brings the day sky back' ((Val $x 'file') -eq 'backdrop.png') $x.Trim()
+Check 'The daytime backdrop brings the day sky back' ((Val $x 'file') -eq 'FS020_Day_Sunless.lvsky') $x.Trim()
 Start-Sleep 20
 Check 'The game still runs after level changes' ((Val (Lab 'vr' 1) 'active') -eq 'True' -and (Lab 'dump' 1) -notmatch 'CANVAS Loading \[View\] en=True') ''
 
@@ -539,7 +614,7 @@ $p = Read-Tint; Check 'No fade leaves the sky untinted' (Near-Colour $p 1 1 1) "
 [void](Lab 'ppw PP Gray 0.5' 1); $p = Read-Tint; Check 'The two fades blend in the game''s order' (Near-Colour $p 0.78 0.555 0.665) "R=$($p.R) G=$($p.G) B=$($p.B)"
 [void](Lab 'goto Chapter 01 Scene 65' 1); $x = Wait-Backdrop 'Chapter_01_Backdrop_Night'; Start-Sleep 18
 [void](Lab "skyload $skyDir\white.png|4096" 1); [void](Wait-Sky 'ready_*'); [void](Lab 'ppw PP Gray 1' 1); [void](Lab 'ppw PP Sunset 1' 1)
-$p = Read-Tint; Check 'The night sky ignores the daytime fades' (Near-Colour $p 1 1 1) "R=$($p.R) G=$($p.G) B=$($p.B)"
+$p = Read-Tint; Check 'A Shade line darkens the sky, and the night sky ignores the daytime fades' (Near-Colour $p 0.5 0.5 0.5) "R=$($p.R) G=$($p.G) B=$($p.B)"
 [void](Lab 'ppw PP Gray 0' 1); [void](Lab 'ppw PP Sunset 0' 1); [void](Lab 'waterdebug 0' 1)
 [void](Lab 'goto Chapter 01 Scene 10' 1); [void](Wait-Backdrop 'Chapter_01_Backdrop'); Start-Sleep 18
 
@@ -571,6 +646,7 @@ Check 'No errors or exceptions in the mod log' ($errs.Count -eq 0) (($errs | Sel
 Check 'Testing changes no save files' (((Get-ChildItem $saveFolder -Filter *.sav | ForEach-Object { $_.Name + (Get-FileHash $_.FullName).Hash }) -join ';') -eq $savesBefore)
 Check 'VR leaves the saved display mode alone after quitting' ((Get-DisplayPrefs) -eq $displayBefore) (Get-DisplayPrefs)
 if ($null -ne $savedCfg) { Set-Content $Cfg $savedCfg -Encoding ascii -NoNewline }
+$savedMap | Set-Content $installedMap -Encoding ascii
 Write-Output ''
 Write-Output "$script:Pass passed, $script:Fail failed"
 exit $script:Fail

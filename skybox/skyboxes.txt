@@ -3,32 +3,30 @@
 # Format:  Backdrop name = image file in this folder
 #
 # Images can be 2:1 panoramas (equirectangular) or 4:3 horizontal-cross cubemaps, of any size, as PNG
-# or JPG. The middle of a panorama faces forward. A backdrop that isn't listed, or that is
-# commented out with #, keeps whichever skybox is already showing. Restart the game after editing.
+# or JPG, or packed as .lvsky. The middle of a panorama faces forward. A backdrop that isn't listed, or that
+# is commented out with #, keeps whichever skybox is already showing. Restart the game after editing.
 # The mod's log, BepInEx\LogOutput.log, says which backdrop is showing as you play.
 
-Main Menu = backdrop.png
+Main Menu = FS020_Day_Sunless.lvsky
 
-Chapter 01 Backdrop = backdrop.png
-Chapter 01 Backdrop Night = backdropnight.png
-Chapter 03 Backdrop = backdrop.png
-Chapter 04 Backdrop = backdrop.png
-Chapter 05 Backdrop = backdropnight.png
-Chapter 06 Backdrop = backdropnight.png
-Chapter 07 Backdrop = backdrop.png
-Chapter 09 Backdrop = backdropnight.png
-Chapter 10 Backdrop = backdrop.png
-Chapter 12 Backdrop = backdrop.png
-Chapter 14 Backdrop = backdrop.png
-Chapter 15 Backdrop = backdrop.png
-Chapter 16 Backdrop = backdropnight.png
-Chapter 17 Backdrop = backdrop.png
-
-# These don't have their own images yet, so they keep the skybox already showing.
-# Chapter 03 Backdrop 1 =
-# Chapter 14 Backdrop Dream =
-# Chapter 15 Backdrop Rauken =
-# Chapter 16 Backdrop 2 =
+Chapter 01 Backdrop = FS020_Day_Sunless.lvsky
+Chapter 01 Backdrop Night = FS002_Night_Moonless.lvsky
+Chapter 03 Backdrop = FS008_Day_Sunless.lvsky
+Chapter 03 Backdrop 1 = FS005_Sunset.lvsky
+Chapter 04 Backdrop = FS010_Day_Sunless.lvsky
+Chapter 05 Backdrop = FS000_Day_02_Sunless.lvsky
+Chapter 06 Backdrop = FS010_Day_Sunless.lvsky
+Chapter 07 Backdrop = FS013_Rainy.lvsky
+Chapter 09 Backdrop = FS008_Rainy.lvsky
+Chapter 10 Backdrop = FS017_Day_Sunless.lvsky
+Chapter 12 Backdrop = FS011_Day_Sunless.lvsky
+Chapter 14 Backdrop = FS016_Sandstorm.lvsky
+Chapter 14 Backdrop Dream = FS013_Sunset.lvsky
+Chapter 15 Backdrop = FS016_Sandstorm.lvsky
+Chapter 15 Backdrop Rauken = FS016_Sunny.lvsky
+Chapter 16 Backdrop = FS016_Day.lvsky
+Chapter 16 Backdrop 2 = FS017_Night_Moonless.lvsky
+Chapter 17 Backdrop = FS020_Day_Sunless.lvsky
 
 # Tints follow the game's own colour fades, so the sky changes along with the screen. Each line names a
 # backdrop, one of the game's post-process volumes, and the red, green and blue that volume leaves at full
@@ -37,3 +35,27 @@ Chapter 17 Backdrop = backdrop.png
 
 Tint: Chapter 01 Backdrop / PP Sunset = 1.00 0.56 0.52
 Tint: Chapter 01 Backdrop / PP Gray = 0.56 0.55 0.81
+
+# A backdrop name of * applies to every level. The game uses PP Cave whenever Lana is underground.
+Tint: * / PP Cave = 0.40 0.40 0.40
+
+# Shades follow places where the game's own painted sky darkens or changes colour along a level. Each stop is
+# a distance along the level, then red, green and blue strengths, with smooth changes between stops.
+# Shade: Backdrop name = distance red green blue | distance red green blue | ...
+
+# Shades follow places where the game's own painted sky darkens or changes colour along a level. Each stop is
+# a distance along the level, then red, green and blue strengths, with smooth changes between stops.
+# Shade: Backdrop name = distance red green blue | distance red green blue | ...
+
+# Shades follow places where the game's own painted sky darkens or changes colour along a level. Each stop is
+# a distance along the level, then red, green and blue strengths, with smooth changes between stops.
+# Shade: Backdrop name = distance red green blue | distance red green blue | ...
+# --- Shades from the sky scan (tools\make_shades.ps1). Hand changes here are replaced on the next run.
+Shade: Chapter 01 Backdrop Night = -380 1.00 1.00 1.00 | -224 1.00 1.00 1.00 | -195 0.88 0.83 0.75 | -181 0.85 0.80 0.73 | -169 0.85 0.81 0.73 | -139 0.86 0.83 0.72 | -109 0.87 0.82 0.74 | -79 1.00 1.00 1.00 | 282 1.00 1.00 1.00
+Shade: Chapter 04 Backdrop = -34 1.00 1.00 1.00 | 806 1.00 1.00 1.00 | 902 0.81 0.91 0.95 | 932 0.87 0.96 0.86 | 957 0.77 0.89 0.91 | 968 0.81 0.93 0.84 | 998 0.80 0.93 0.82 | 1029 0.79 0.91 0.88 | 1040 0.85 0.96 0.86 | 1070 0.84 0.94 0.85 | 1100 0.85 0.94 0.84 | 1130 0.81 0.92 0.83 | 1160 1.00 1.00 1.00 | 1258 1.00 1.00 1.00
+Shade: Chapter 07 Backdrop = 1 1.00 1.00 1.00 | 281 1.00 1.00 1.00 | 289 0.83 0.86 0.85 | 319 0.88 0.90 0.89 | 331 0.87 0.90 0.89 | 347 0.85 0.88 0.87 | 354 0.89 0.91 0.91 | 364 0.89 0.90 0.89 | 394 1.00 1.00 1.00 | 466 1.00 1.00 1.00 | 479 0.80 0.83 0.82 | 509 0.87 0.89 0.88 | 539 1.00 1.00 1.00 | 616 1.00 1.00 1.00
+Shade: Chapter 09 Backdrop = 4 0.94 0.93 0.86 | 34 0.94 0.93 0.86 | 64 0.97 0.92 0.88 | 82 1.00 1.00 1.00 | 769 1.00 1.00 1.00
+Shade: Chapter 12 Backdrop = -405 1.00 1.00 1.00 | 238 1.00 1.00 1.00 | 268 0.53 0.77 0.79 | 296 0.21 0.48 0.58 | 298 0.29 0.67 0.80 | 304 0.28 0.65 0.78 | 326 0.21 0.40 0.55 | 356 0.20 0.39 0.55 | 386 0.19 0.39 0.55 | 413 0.20 0.38 0.55 | 447 0.18 0.28 0.41 | 477 0.18 0.28 0.41 | 490 0.18 0.27 0.41 | 507 0.18 0.28 0.41 | 557 0.18 0.28 0.41 | 564 0.18 0.27 0.41 | 593 0.18 0.27 0.41 | 608 0.19 0.38 0.57 | 638 0.19 0.38 0.56 | 669 0.19 0.38 0.57 | 696 0.15 0.21 0.30 | 726 0.15 0.21 0.31 | 756 0.15 0.21 0.30 | 786 0.15 0.22 0.31 | 816 0.15 0.21 0.31 | 822 0.15 0.21 0.31 | 904 0.15 0.22 0.32 | 934 0.15 0.22 0.32 | 964 0.15 0.22 0.31 | 994 0.15 0.22 0.31 | 1024 0.15 0.21 0.31 | 1234 0.15 0.21 0.31 | 1264 0.15 0.21 0.30 | 1294 0.15 0.20 0.30 | 1564 0.15 0.20 0.30 | 1594 0.15 0.21 0.30 | 1624 0.15 0.21 0.31 | 1655 0.15 0.21 0.31
+Shade: Chapter 16 Backdrop 2 = 360 0.24 0.38 0.40 | 390 0.25 0.38 0.40 | 457 0.25 0.38 0.40 | 465 0.24 0.38 0.40 | 487 0.24 0.38 0.40 | 488 0.20 0.35 0.37 | 505 0.25 0.38 0.40 | 518 0.20 0.35 0.37 | 541 0.20 0.35 0.37 | 547 0.24 0.37 0.38 | 571 0.23 0.37 0.39 | 601 0.25 0.39 0.40 | 624 0.26 0.38 0.40 | 631 0.20 0.35 0.37 | 659 0.20 0.35 0.37 | 664 1.00 1.00 1.00 | 1367 1.00 1.00 1.00
+Shade: Chapter 17 Backdrop = -379 0.73 0.85 0.88 | -349 0.74 0.85 0.88 | -342 0.83 0.90 0.92 | -311 1.00 1.00 1.00 | -301 0.88 0.92 0.94 | -271 0.75 0.86 0.88 | -267 0.76 0.87 0.90 | -262 0.80 0.89 0.91 | -232 0.72 0.84 0.87 | -224 0.74 0.85 0.88 | -194 1.00 1.00 1.00 | 48 1.00 1.00 1.00
+# --- End of scanned shades

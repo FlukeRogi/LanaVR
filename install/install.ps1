@@ -21,27 +21,53 @@ function Find-Game {
     return ''
 }
 
+Write-Host 'Welcome to the Planet of Lana virtual screen VR mod by FlukeRogi' -ForegroundColor Cyan
+Write-Host ''
 if (-not $GameDir) { $GameDir = Find-Game }
 if (-not $GameDir -or -not (Test-Path (Join-Path $GameDir 'Planet of Lana.exe'))) {
     Write-Host 'Could not find Planet of Lana in your Steam libraries.' -ForegroundColor Red
     $GameDir = Read-Host 'Paste the game folder path (the one containing "Planet of Lana.exe")'
     if (-not (Test-Path (Join-Path $GameDir 'Planet of Lana.exe'))) { throw "Planet of Lana.exe is not in: $GameDir" }
 }
-Write-Host "Game folder: $GameDir"
+Write-Host "Game folder: " -NoNewline -ForegroundColor Gray; Write-Host $GameDir -ForegroundColor White
+Write-Host ''
 
 if (Get-Process 'Planet of Lana' -ErrorAction SilentlyContinue) { throw 'Please close Planet of Lana first.' }
 
 if ($Action -eq 'Ask') {
     $c = Read-Host 'Type 1 to install LanaVR, or 2 to uninstall it'
+    Write-Host ''
     $Action = switch ($c) { '1' { 'Install' } '2' { 'Uninstall' } default { throw 'Nothing was changed.' } }
 }
 
 if ($Action -eq 'Install') {
     Copy-Item (Join-Path $here 'payload\*') $GameDir -Recurse -Force
-    Write-Host ''
+    # The developer test mode blocks saves and Steam achievements, so a player's install must never have it on.
+    $cfg = Join-Path $GameDir 'BepInEx\config\com.lanavr.planetoflana.cfg'
+    if (Test-Path $cfg) {
+        $text = Get-Content $cfg
+        $fixed = $text -replace '^LabCommands = true', 'LabCommands = false'
+        if (($fixed -join "`n") -ne ($text -join "`n")) { Set-Content $cfg $fixed -Encoding utf8; Write-Host 'Switched off the developer test mode, which blocks saves and achievements.'; Write-Host '' }
+    }
+    # A slightly faster start: no BepInEx console window (the log file is still written), and BepInEx
+    # loads the game's interop assemblies when they are used instead of all of them up front.
+    $bep = Join-Path $GameDir 'BepInEx\config\BepInEx.cfg'
+    if (Test-Path $bep) {
+        $t = Get-Content $bep -Raw
+        $t = [regex]::Replace($t, '(?s)(\[Logging\.Console\].*?\r?\nEnabled = )\w+', '${1}false')
+        $t = [regex]::Replace($t, '(?m)^PreloadIL2CPPInteropAssemblies = \w+', 'PreloadIL2CPPInteropAssemblies = false')
+        Set-Content $bep $t -Encoding utf8 -NoNewline
+    } else {
+        # BepInEx fills in every other setting with its defaults on the first start.
+        New-Item -ItemType Directory -Force (Split-Path $bep) | Out-Null
+        "[IL2CPP]`r`n`r`nPreloadIL2CPPInteropAssemblies = false`r`n`r`n[Logging.Console]`r`n`r`nEnabled = false`r`n" | Set-Content $bep -Encoding utf8 -NoNewline
+    }
     Write-Host 'LanaVR is installed. Start Planet of Lana from Steam.' -ForegroundColor Green
-    Write-Host 'The first start takes a minute or two while BepInEx prepares the game.'
-    Write-Host 'To choose SteamVR or Virtual Desktop, see README.txt.'
+    Write-Host ''
+    Write-Host 'The first start may take up to a minute or two depending on your PC.' -ForegroundColor Yellow
+    Write-Host 'This is a first time only setup - loading again afterwards will be fast.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host 'Please refer to the README.txt for further mod information.' -ForegroundColor Gray
     return
 }
 

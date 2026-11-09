@@ -39,7 +39,19 @@ namespace LanaVR
         readonly List<Camera> _reflCams = new List<Camera>();
         readonly List<VolumeLight> _volumeLights = new List<VolumeLight>();
         readonly List<Canvas> _routed = new List<Canvas>();
-        float _nextSweep;
+        float _nextSweep, _nextFullSweep;
+        int _sceneSignature;
+
+        static int SceneSignature()
+        {
+            int sig = UnityEngine.SceneManagement.SceneManager.sceneCount;
+            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+            {
+                var s = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+                sig = sig * 31 + s.handle * (s.isLoaded ? 2 : 1);
+            }
+            return sig;
+        }
         float _focal = 30f;
 
         // Screen pose in OpenXR LOCAL space.
@@ -117,6 +129,7 @@ namespace LanaVR
                 _created = true;
                 _retryDelay = 2.5f;
                 _steamVrSession = Native.RuntimeName.IndexOf("SteamVR", StringComparison.OrdinalIgnoreCase) >= 0;
+                Scenery.OnSessionCreated();
                 Skybox.OnSessionCreated();
                 Native.LVR_GetRecommended(out _recW, out _recH);
                 CreateTextures();
@@ -144,6 +157,8 @@ namespace LanaVR
 
             if (_textureDirty) ApplyResolution();
             Skybox.UpdateTint(Time.unscaledDeltaTime);
+            Scenery.UpdateReveal();
+            if (f.viewsValid != 0 && _hasCenter) WatchForHeadsetOn(f);
             if (f.viewsValid != 0 && (!_hasCenter || _recenterRequested)) Recenter(f);
             else if (f.viewsValid == 0 && !_hasCenter) PlaceDefaultScreen();
 
@@ -157,13 +172,36 @@ namespace LanaVR
             GL.IssuePluginEvent(_ev, EvSubmit);
             ShowCameras();
             FrameMs = Mathf.Lerp(FrameMs, (Time.realtimeSinceStartup - t0) * 1000f, 0.05f);
+            PerfWatch.Tick();
             if (Time.unscaledTime >= _nextSweep)
             {
                 _nextSweep = Time.unscaledTime + 0.5f;
-                RouteCanvases();
-                Skybox.Poll();
+                float s0 = Time.realtimeSinceStartup;
+                // Searching all the game's objects takes a few milliseconds, so it waits for a level to load or
+                // unload, with a check every few seconds for anything that appears otherwise.
+                int scenes = SceneSignature();
+                bool full = scenes != _sceneSignature || Time.unscaledTime >= _nextFullSweep;
+                if (full)
+                {
+                    _sceneSignature = scenes;
+                    _nextFullSweep = Time.unscaledTime + 5f;
+                    Prune();
+                    RouteCanvases();
+                }
+                Skybox.Poll(full);
                 Scenery.Poll();
+                WindowFocus.Poll();
+                PerfWatch.Sweep((Time.realtimeSinceStartup - s0) * 1000f);
             }
+        }
+
+        /// <summary>Lets go of cameras and canvases from levels that have since unloaded.</summary>
+        void Prune()
+        {
+            _routed.RemoveAll(new Predicate<Canvas>(c => c == null));
+            List<IntPtr> dead = null;
+            foreach (var kv in _shrunk) if (kv.Value.refl == null) (dead ??= new List<IntPtr>()).Add(kv.Key);
+            if (dead != null) foreach (var k in dead) _shrunk.Remove(k);
         }
 
         /// <summary>The runtime ended the session: the headset was disconnected, the runtime was closed, or
@@ -210,6 +248,8 @@ namespace LanaVR
         {
             _active = true;
             _hasCenter = false;
+            _activatedAt = Time.unscaledTime;
+            _offCenterSince = -1;
             _recenterRequested = false;
             Plugin.L.LogInfo("VR session running");
             var go = new GameObject("LanaVR UI Camera");
@@ -316,13 +356,17 @@ namespace LanaVR
         /// twice per frame into a much smaller eye image, so a smaller texture looks the same and costs less.</summary>
         void ShrinkReflection(PoL.Rendering.ReflectionCamera refl)
         {
-            if (_shrunk.ContainsKey(refl.Pointer)) return;
+            // Checked every frame by its real size, not by whether this camera was seen before: the game can
+            // rebuild the texture at full size, and a new level's camera can reuse an old one's address. Either
+            // would otherwise leave a full-size reflection rendering twice a frame until the game restarts.
             var target = refl.reflectionRenderTarget;
             int wanted = Mathf.Min(_rtH, 1024);
             if (target == null || target.height <= wanted) return;
-            _shrunk[refl.Pointer] = (refl, refl.renderResolutionBase);
+            if (!_shrunk.TryGetValue(refl.Pointer, out var known) || known.refl == null || known.refl.Pointer != refl.Pointer)
+                _shrunk[refl.Pointer] = (refl, refl.renderResolutionBase);
             refl.renderResolutionBase = wanted;
             refl.RebuildRenderTargetTexture();
+            PerfWatch.Note($"water reflection was {target.width}x{target.height}, reduced");
         }
 
         void ShowCameras()
@@ -334,6 +378,25 @@ namespace LanaVR
         }
 
         public void RequestRecenter() { _recenterRequested = true; }
+
+        // The first pose of a session is often the headset resting on a desk or lap, which would leave the screen
+        // far below the player's eyes once it is put on. So for the first two minutes, a head that settles more
+        // than 25 cm above or below the screen's centre recenters by itself.
+        const float SettleWindow = 120f, SettleDistance = 0.25f, SettleSeconds = 2f;
+        float _activatedAt, _offCenterSince = -1;
+
+        void WatchForHeadsetOn(XrFrame f)
+        {
+            float now = Time.unscaledTime;
+            if (now - _activatedAt > SettleWindow) return;
+            float y = (f.left.py + f.right.py) * 0.5f;
+            if (Mathf.Abs(y - _centerHead.y) <= SettleDistance) { _offCenterSince = -1; return; }
+            if (_offCenterSince < 0) { _offCenterSince = now; return; }
+            if (now - _offCenterSince < SettleSeconds) return;
+            _offCenterSince = -1;
+            _recenterRequested = true;
+            Plugin.L.LogInfo($"Head is {y - _centerHead.y:+0.00;-0.00} m from the screen's height, recentering");
+        }
 
         static Vector3 V(EyePose e) => new Vector3(e.px, e.py, e.pz);
 
@@ -373,8 +436,10 @@ namespace LanaVR
             _screenPos = _centerHead + Rot(_screenRot, new Vector3(0, 0, -Mathf.Max(0.3f, Cfg.ScreenDistance.Value)));
             float w = Mathf.Max(0.2f, Cfg.ScreenWidth.Value);
             Native.LVR_SetScreen(_screenPos.x, _screenPos.y, _screenPos.z, _screenRot.x, _screenRot.y, _screenRot.z, _screenRot.w, w, w / Aspect);
-            Native.LVR_SetSkybox(Mathf.Clamp01(Cfg.SkyBrightness.Value), _centerYaw);
+            Native.LVR_SetSkybox(1f, _centerYaw);
             Native.LVR_SetWater(_centerHead.y, Cfg.WaterHeight.Value, Mathf.Max(0f, Cfg.RippleStrength.Value));
+            // A negative quality tells the native layer to leave the screen's reflection out.
+            Native.LVR_SetReflection(Cfg.ScreenReflection.Value ? Mathf.Clamp(Mathf.Round(Cfg.ReflectionQuality.Value), 0f, 2f) : -1f);
         }
 
         float FocalDistance(Camera main)

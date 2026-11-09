@@ -46,6 +46,8 @@ namespace LanaVR
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)] public static extern void LVR_LoadSkybox(string path, int maxFaceSize, float fadeSeconds);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetSkybox(float brightness, float yaw);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetSkyTint(float r, float g, float b);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetReveal(float level);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetReflection(float quality);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetWater(float headY, float offset, float ripple);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_GetWater(out float y, out int floorKnown);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void LVR_SetWaterDebug(int mode);
