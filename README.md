@@ -2,7 +2,7 @@
 
 **Play Planet of Lana in VR, on a giant floating 3D screen.**
 
-LanaVR puts the game on a large screen in front of you while you stand on a small wooden platform on a lake, under a sky that changes with the game's own scenery. Each eye gets its own full picture, so the game has real depth, and moving your head shifts the view as if you were looking through a window into Lana's world.
+Planet of Lana VR puts the game on a large screen in front of you while you stand on a small wooden platform on a lake, under a sky that changes with the game's own scenery. Each eye gets its own full picture, so the game has real depth, and moving your head shifts the view as if you were looking through a window into Lana's world.
 
 The game itself plays exactly as normal, with a gamepad or keyboard.
 
