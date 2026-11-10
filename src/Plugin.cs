@@ -8,7 +8,7 @@ namespace LanaVR
     [BepInPlugin("com.lanavr.planetoflana", "LanaVR", Version)]
     public class Plugin : BasePlugin
     {
-        public const string Version = "1.15.0";
+        public const string Version = "1.15.1";
         internal static ManualLogSource L;
 
         public override void Load()

@@ -2,7 +2,7 @@
 # -Tester names it LanaVR-<version>-tester.zip, for the private test releases.
 param([switch]$Tester)
 $ErrorActionPreference = 'Stop'
-$version = '1.15.0'
+$version = '1.15.1'
 $root = Split-Path $PSScriptRoot -Parent
 $dist = Join-Path $root 'dist'
 # Everything goes inside a LanaVR folder, so extracting the zip gives the player a folder of its own.

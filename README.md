@@ -8,7 +8,7 @@ The game itself plays exactly as normal, with a gamepad or keyboard.
 
 ## What you need
 
-- **Planet of Lana** on Steam (the first game) on a Windows PC
+- **Planet of Lana** on Steam or GOG (the first game) on a Windows PC
 - A **PC VR headset**, running through **SteamVR** or **Virtual Desktop**
 - A **gamepad or keyboard**. Motion controllers aren't used.
 
@@ -17,9 +17,9 @@ The game itself plays exactly as normal, with a gamepad or keyboard.
 1. Go to **[Releases](../../releases)** and download the newest `LanaVR-<version>.zip`.
 2. Unzip it anywhere. You'll get a `LanaVR` folder.
 3. Double-click **`Install LanaVR.bat`** and type **1**.
-4. Connect your headset, then start Planet of Lana from Steam.
+4. Connect your headset, then start Planet of Lana from Steam or GOG Galaxy.
 
-The installer finds the game in your Steam library by itself. **The very first start takes a minute or two** while the mod sets itself up. After that, starting is quick.
+The installer finds the game by itself. If you have both the Steam and GOG versions, it asks which one to set up, and the same when removing the mod. Run it once for each version to use the mod in both. **The very first start takes a minute or two** while the mod sets itself up. After that, starting is quick.
 
 If Windows Smart App Control blocks the mod's files, the game simply starts flat on your monitor.
 

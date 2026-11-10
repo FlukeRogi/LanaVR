@@ -1,4 +1,4 @@
-LanaVR 1.15.0: Planet of Lana on a floating 3D screen in VR
+LanaVR 1.15.1: Planet of Lana on a floating 3D screen in VR
 ==========================================================
 
 The game plays on a large virtual screen fixed in your room. Each eye gets its own
@@ -6,14 +6,16 @@ full render, so you see real depth. Moving your head changes the view, like look
 through a window into the game's world.
 
 You need
-  - Planet of Lana on Steam (the first game)
+  - Planet of Lana on Steam or GOG (the first game)
   - A gamepad or keyboard. Motion controllers are not used.
   - SteamVR, or Virtual Desktop with VDXR
 
 Install
   1. Unzip this folder anywhere.
   2. Double-click "Install LanaVR.bat" and type 1.
-  3. Start the game from Steam. The first start takes a minute or two.
+  3. Start the game from Steam or GOG Galaxy. The first start takes a minute or two.
+     If you have both the Steam and GOG versions, the installer asks which one to set up,
+     and asks again when uninstalling. Run it once for each to use the mod in both.
   Windows Smart App Control can block unsigned mod files. If it does, the game just
   stays flat.
 

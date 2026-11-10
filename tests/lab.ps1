@@ -1,6 +1,7 @@
 # Test helpers. Dot-source this file: . .\tests\lab.ps1
 $script:Root = Split-Path $PSScriptRoot -Parent
-$script:Game = 'C:\Program Files (x86)\Steam\steamapps\common\Planet of Lana'
+# LANA_GAME points the tests at another copy of the game, such as the GOG one.
+$script:Game = if ($env:LANA_GAME) { $env:LANA_GAME } else { 'C:\Program Files (x86)\Steam\steamapps\common\Planet of Lana' }
 $script:Lab = "$env:USERPROFILE\AppData\LocalLow\LanaVR\lab"
 $script:Cfg = "$Game\BepInEx\config\com.lanavr.planetoflana.cfg"
 New-Item -ItemType Directory -Force $Lab | Out-Null
